@@ -48,9 +48,9 @@ macro_rules! csi {
 macro_rules! osc {
         ($( $l:expr ),*) => { concat!(esc!("]"), $( $l ),*) };
 }
-macro_rules! dcs {
-        ($( $l:expr ),*) => { concat!(esc!("P"), $( $l ),*) };
-}
+// macro_rules! dcs {
+//         ($( $l:expr ),*) => { concat!(esc!("P"), $( $l ),*) };
+// }
 // macro_rules! apm {
 //         ($( $l:expr ),*) => { concat!(esc!("_"), $( $l ),*) };
 // }
@@ -144,7 +144,7 @@ where
         // TODO: make read() non-blocking and use a timeout, maybe mio crate?
         #[cfg(not(any(windows, unix)))]
         fn size(&mut self) -> io::Result<(u16, u16)> {
-                self.write_all((cursor::move_to(Coord::MAX.x, Coord::MAX.y) + term::REPORT_CURSOR_POSITION).as_bytes())?;
+                self.write_all((cursor::to(Coord::MAX.x, Coord::MAX.y) + term::REPORT_CURSOR_POSITION).as_bytes())?;
                 let mut buf = vec![0; 14];
                 if stdin().read(&mut buf)? > 5 {
                         let mut buf = String::from_utf8(buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;

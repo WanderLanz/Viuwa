@@ -1,4 +1,3 @@
-use super::*;
 pub fn rgb_to_256([r, g, b]: [u8; 3]) -> u8 {
         if r == g && g == b {
                 return GREY_TO_256[r as usize];

@@ -2,7 +2,6 @@ use std::iter;
 
 use image::{
         buffer::{Pixels, Rows},
-        imageops::FilterType,
         DynamicImage, GrayImage, Luma, Pixel, Rgb, RgbImage,
 };
 
