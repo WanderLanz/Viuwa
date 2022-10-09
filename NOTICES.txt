@@ -1,0 +1,130 @@
+Copyright 2022 Lance Warden
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+===============================================================================
+
+MIT License
+Copyright (c) 2022 Lance Warden.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+===============================================================================
+
+The viuwa package uses some third party libraries under their own license terms:
+
+ * adler 1.0.2 under the terms of 0BSD / MIT / Apache-2.0
+ * atty 0.2.14 under the terms of MIT
+ * bit_field 0.10.1 under the terms of MIT / Apache-2.0
+ * bitflags 1.3.2 under the terms of MIT / Apache-2.0
+ * bumpalo 3.11.0 under the terms of MIT / Apache-2.0
+ * bytemuck 1.12.1 under the terms of MIT / Apache-2.0 / Zlib
+ * byteorder 1.4.3 under the terms of Unlicense / MIT
+ * cfg-if 1.0.0 under the terms of MIT / Apache-2.0
+ * clap 4.0.8 under the terms of MIT / Apache-2.0
+ * clap_derive 4.0.8 under the terms of MIT / Apache-2.0
+ * clap_lex 0.3.0 under the terms of MIT / Apache-2.0
+ * color_quant 1.1.0 under the terms of MIT
+ * crc32fast 1.3.2 under the terms of MIT / Apache-2.0
+ * crossbeam-channel 0.5.6 under the terms of MIT / Apache-2.0
+ * crossbeam-deque 0.8.2 under the terms of MIT / Apache-2.0
+ * crossbeam-epoch 0.9.11 under the terms of MIT / Apache-2.0
+ * crossbeam-utils 0.8.12 under the terms of MIT / Apache-2.0
+ * crossterm 0.25.0 under the terms of MIT
+ * crossterm_winapi 0.9.0 under the terms of MIT
+ * either 1.8.0 under the terms of MIT / Apache-2.0
+ * exr 1.5.1 under the terms of BSD-3-Clause
+ * flate2 1.0.24 under the terms of MIT / Apache-2.0
+ * flume 0.10.14 under the terms of MIT / Apache-2.0
+ * futures-core 0.3.24 under the terms of MIT / Apache-2.0
+ * futures-sink 0.3.24 under the terms of MIT / Apache-2.0
+ * getrandom 0.2.7 under the terms of MIT / Apache-2.0
+ * gif 0.11.4 under the terms of MIT / Apache-2.0
+ * half 1.8.2 under the terms of MIT / Apache-2.0
+ * heck 0.4.0 under the terms of MIT / Apache-2.0
+ * hermit-abi 0.1.19 under the terms of MIT / Apache-2.0
+ * image 0.24.4 under the terms of MIT
+ * jpeg-decoder 0.2.6 under the terms of MIT / Apache-2.0
+ * js-sys 0.3.60 under the terms of MIT / Apache-2.0
+ * lebe 0.5.2 under the terms of BSD-3-Clause
+ * libc 0.2.134 under the terms of MIT / Apache-2.0
+ * lock_api 0.4.9 under the terms of MIT / Apache-2.0
+ * log 0.4.17 under the terms of MIT / Apache-2.0
+ * memoffset 0.6.5 under the terms of MIT
+ * miniz_oxide 0.5.4 under the terms of MIT / Apache-2.0 / Zlib
+ * mio 0.8.4 under the terms of MIT
+ * nanorand 0.7.0 under the terms of Zlib
+ * num-integer 0.1.45 under the terms of MIT / Apache-2.0
+ * num-rational 0.4.1 under the terms of MIT / Apache-2.0
+ * num-traits 0.2.15 under the terms of MIT / Apache-2.0
+ * num_cpus 1.13.1 under the terms of MIT / Apache-2.0
+ * once_cell 1.15.0 under the terms of MIT / Apache-2.0
+ * os_str_bytes 6.3.0 under the terms of MIT / Apache-2.0
+ * parking_lot 0.12.1 under the terms of MIT / Apache-2.0
+ * parking_lot_core 0.9.3 under the terms of MIT / Apache-2.0
+ * pin-project 1.0.12 under the terms of MIT / Apache-2.0
+ * pin-project-internal 1.0.12 under the terms of MIT / Apache-2.0
+ * png 0.17.6 under the terms of MIT / Apache-2.0
+ * proc-macro-error 1.0.4 under the terms of MIT / Apache-2.0
+ * proc-macro-error-attr 1.0.4 under the terms of MIT / Apache-2.0
+ * proc-macro2 1.0.46 under the terms of MIT / Apache-2.0
+ * quote 1.0.21 under the terms of MIT / Apache-2.0
+ * rayon 1.5.3 under the terms of MIT / Apache-2.0
+ * rayon-core 1.9.3 under the terms of MIT / Apache-2.0
+ * redox_syscall 0.2.16 under the terms of MIT
+ * scoped_threadpool 0.1.9 under the terms of MIT
+ * scopeguard 1.1.0 under the terms of MIT / Apache-2.0
+ * signal-hook 0.3.14 under the terms of MIT / Apache-2.0
+ * signal-hook-mio 0.2.3 under the terms of MIT / Apache-2.0
+ * signal-hook-registry 1.4.0 under the terms of MIT / Apache-2.0
+ * smallvec 1.9.0 under the terms of MIT / Apache-2.0
+ * spin 0.9.4 under the terms of MIT
+ * strsim 0.10.0 under the terms of MIT
+ * syn 1.0.101 under the terms of MIT / Apache-2.0
+ * termcolor 1.1.3 under the terms of Unlicense / MIT
+ * threadpool 1.8.1 under the terms of MIT / Apache-2.0
+ * tiff 0.7.3 under the terms of MIT
+ * unicode-ident 1.0.4 under the terms of (MIT / Apache-2.0) AND Unicode-DFS-2016
+ * wasi 0.11.0+wasi-snapshot-preview1 under the terms of MIT / Apache-2.0 / Apache-2.0 WITH LLVM-exception
+ * wasm-bindgen 0.2.83 under the terms of MIT / Apache-2.0
+ * wasm-bindgen-backend 0.2.83 under the terms of MIT / Apache-2.0
+ * wasm-bindgen-macro 0.2.83 under the terms of MIT / Apache-2.0
+ * wasm-bindgen-macro-support 0.2.83 under the terms of MIT / Apache-2.0
+ * wasm-bindgen-shared 0.2.83 under the terms of MIT / Apache-2.0
+ * weezl 0.1.7 under the terms of MIT / Apache-2.0
+ * winapi 0.3.9 under the terms of MIT / Apache-2.0
+ * winapi-i686-pc-windows-gnu 0.4.0 under the terms of MIT / Apache-2.0
+ * winapi-util 0.1.5 under the terms of Unlicense / MIT
+ * winapi-x86_64-pc-windows-gnu 0.4.0 under the terms of MIT / Apache-2.0
+ * windows-sys 0.36.1 under the terms of MIT / Apache-2.0
+ * windows_aarch64_msvc 0.36.1 under the terms of MIT / Apache-2.0
+ * windows_i686_gnu 0.36.1 under the terms of MIT / Apache-2.0
+ * windows_i686_msvc 0.36.1 under the terms of MIT / Apache-2.0
+ * windows_x86_64_gnu 0.36.1 under the terms of MIT / Apache-2.0
+ * windows_x86_64_msvc 0.36.1 under the terms of MIT / Apache-2.0

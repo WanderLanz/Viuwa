@@ -1,0 +1,19 @@
+[package]
+name = "viuwa"
+version = "0.0.42"
+edition = "2021"
+authors = ["Lance Warden"]
+description = "Yet another \"super simple\" cli/tui ANSI image viewer. Viuwa is not a fork of viu, but it is inspired by it."
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+clap = { version = "4.0.*", features = ["derive", "env"] }
+image = "0.24.*"
+# base64 = { version = "0.13.*", optional = true }
+
+[target.'cfg(any(unix,windows))'.dependencies]
+crossterm = "0.25.*"
+
+# [features]
+# sixel = []
+# iterm = ["dep:base64"]
