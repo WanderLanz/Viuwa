@@ -216,7 +216,7 @@ impl<'a> Viuwa<'a> {
                                 b'q' => break,
                                 b'r' => {
                                         let term_size = self.lock.size()?;
-                                        self._resize(term_size.0, term_size.1);
+                                        self._handle_resize(term_size.0, term_size.1);
                                         self._draw()?;
                                 }
                                 b'h' => {
