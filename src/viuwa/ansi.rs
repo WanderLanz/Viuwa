@@ -59,12 +59,12 @@ macro_rules! st {
         ($( $l:expr ),*) => { concat!($( $l ),*, esc!("\\")) };
 }
 
-// const ESC: &str = esc!();
-// const CSI: &str = esc!("[");
-// const OSC: &str = esc!("]");
-// const DCS: &str = esc!("P");
-// const APM: &str = esc!("_");
-// const ST: &str = esc!("\\");
+const ESC: &str = esc!();
+const CSI: &str = esc!("[");
+const OSC: &str = esc!("]");
+const DCS: &str = esc!("P");
+const APM: &str = esc!("_");
+const ST: &str = esc!("\\");
 
 #[derive(Debug, Clone, Copy)]
 struct Coord {
@@ -140,24 +140,44 @@ where
         ///   
         /// It is not guaranteed to work, although more universal than a direct x-term style ANSI window size request "\x1B[18t".  
         /// Works best in raw alternate screen mode.
+        /// relies on the user to press enter because we cannot read stdout.
         /// WARNING: this is a blocking call
-        // TODO: make read() non-blocking and use a timeout, maybe mio crate?
         #[cfg(not(any(windows, unix)))]
         fn size(&mut self) -> io::Result<(u16, u16)> {
-                self.write_all((cursor::to(Coord::MAX.x, Coord::MAX.y) + term::REPORT_CURSOR_POSITION).as_bytes())?;
-                let mut buf = vec![0; 14];
-                if stdin().read(&mut buf)? > 5 {
-                        let mut buf = String::from_utf8(buf).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-                        if let Some(s) = buf.strip_prefix(csi!()).and_then(|s| s.strip_suffix("R")) {
-                                if let Ok(c) = Coord::try_from_report(s) {
-                                        return Ok((c.x as u16 + 1, c.y as u16 + 1));
+                self.write_all(["Requesting terminal size report, please press enter when a report appears (e.g. \"^[[40;132R\")\n",term::SAVE_CURSOR,&cursor::to(Coord::MAX.x, Coord::MAX.y),term::REPORT_CURSOR_POSITION,term::RESTORE_CURSOR].concat().as_bytes())?;
+                self.flush()?;
+                let mut buf = [0; 1];
+                let mut s = Vec::<u8>::with_capacity(10);
+                loop {
+                        stdin().read_exact(&mut buf)?;
+                        match buf[0] {
+                                b'\x1B' => {
+                                        stdin().read_exact(&mut buf)?;
+                                        if buf[0] != b'[' {
+                                                continue;
+                                        }
+                                        loop {
+                                                stdin().read_exact(&mut buf)?;
+                                                if buf[0] == b'R' || buf[0] == b'\0' {
+                                                        break;
+                                                }
+                                                s.push(buf[0]);
+                                        }
+                                        break;
                                 }
+                                b'\0' | b'\n' => break,
+                                _ => (),
                         }
                 }
-                Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "failed to read terminal size using ANSI escape sequences",
-                ))
+                let s = String::from_utf8(s).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                if let Ok(coord) = Coord::try_from_report(&s) {
+                        Ok((coord.x + 1, coord.y + 1))
+                } else {
+                        Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                "failed to read terminal size using ANSI escape sequences",
+                        ))
+                }
         }
         fn cursor(&mut self) -> Cursor<Self> { Cursor::new(self) }
         fn cursor_hide(&mut self) -> io::Result<()> { self.write_all(term::HIDE_CURSOR.as_bytes()) }

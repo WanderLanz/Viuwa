@@ -26,13 +26,13 @@ const UPPER_HALF_BLOCK: &str = "\u{2580}";
 //         max
 // };
 // #[cfg(all(feature = "iterm", feature = "sixel"))]
-// const OUTFORMAT_HELP: &str = "format for output, options are: RGB (1), 256 (2), Grey (3), Iterm (4), Sixel (5)";
+// const OUTFORMAT_HELP: &str = "Format for output, options are: RGB (1), 256 (2), Grey (3), Iterm (4), Sixel (5)";
 // #[cfg(all(not(feature = "iterm"), feature = "sixel"))]
-// const OUTFORMAT_HELP: &str = "format for output, options are: RGB (1), 256 (2), Grey (3), Sixel (5)";
+// const OUTFORMAT_HELP: &str = "Format for output, options are: RGB (1), 256 (2), Grey (3), Sixel (5)";
 // #[cfg(all(feature = "iterm", not(feature = "sixel")))]
-// const OUTFORMAT_HELP: &str = "format for output, options are: RGB (1), 256 (2), Grey (3), Iterm (4)";
+// const OUTFORMAT_HELP: &str = "Format for output, options are: RGB (1), 256 (2), Grey (3), Iterm (4)";
 // #[cfg(not(any(feature = "iterm", feature = "sixel")))]
-const OUTFORMAT_HELP: &str = "format for output, options are: RGB (1), 256 (2), Grey (3)";
+const OUTFORMAT_HELP: &str = "Format for output, options are: RGB (1), 256 (2), Grey (3)";
 
 #[derive(Parser)]
 #[command(
@@ -43,7 +43,7 @@ const OUTFORMAT_HELP: &str = "format for output, options are: RGB (1), 256 (2), 
 struct Args {
         #[arg(help = "The image to display", required = true, value_name = "FILE")]
         image: PathBuf,
-        #[arg(help = "The size of the image when inline flag is set e.g. \"100x100\"", short, long, env = "VIUWA_SIZE", value_parser = parse_size)]
+        #[arg(help = "The size of the image when inline flag is set, e.g. \"100x100\", may be necessary for terminals that only support color ANSI escapes", short, long, env = "VIUWA_SIZE", value_parser = parse_size)]
         size: Option<(u16, u16)>,
         #[arg(
                 short,
@@ -63,7 +63,7 @@ struct Args {
                 value_parser = parse_format_type
         )]
         format: OutFormat,
-        #[arg(short, long, help = "Display the image within current terminal window", requires = "size")]
+        #[arg(short, long, help = "Display the image within current terminal screen")]
         inline: bool,
 }
 
@@ -113,15 +113,19 @@ fn parse_format_type<'a>(format: &'a str) -> Result<viuwa::OutFormat, String> {
 
 fn main() -> BoxResult<()> {
         let args = Args::parse();
+        println!("Loading image...");
         let orig = image::open(&args.image)?;
+        println!("Starting app...");
         if !args.inline {
                 #[cfg(windows)]
                 if !::crossterm::ansi_support::supports_ansi() {
                         return Err("detected no ansi support for windows".into());
                 }
+                #[cfg(not(any(windows, unix)))]
+                println!("WARNING: Without the inline flag, you may need to press enter to send input to the app");
                 Viuwa::new(orig, args.filter, args.format)?.spawn()?;
                 Ok(())
         } else {
-                Viuwa::inline(orig, args.filter, args.format, args.size.unwrap())
+                Viuwa::inline(orig, args.filter, args.format, args.size)
         }
 }

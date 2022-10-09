@@ -293,6 +293,7 @@ impl<'a> Viuwa<'a> {
                 for line in self.buf.iter() {
                         self.lock.write_all(line.as_bytes())?;
                 }
+                self.lock.write_all(ansi::cursor::to(0, self.term_size.1).as_bytes())?;
                 self.lock.flush()?;
                 Ok(())
         }
@@ -300,14 +301,27 @@ impl<'a> Viuwa<'a> {
         fn _help(&mut self) -> BoxResult<()> {
                 self.lock
                         .write_all([ansi::term::CLEAR_SCREEN, ansi::cursor::HOME].concat().as_bytes())?;
-                self._write_centered(0, "Viuwa interative help: ")?;
-                self._write_centered(1, "q to quit")?;
-                self._write_centered(2, "r to redraw")?;
-                self._write_centered(3, "h to print help")?;
-                self._write_centered(4, "f to cycle output format")?;
-                self._write_centered(5, "Shift + f to cycle image filter")?;
-                self._write_centered(6, "Shift + 1-5 to set image filter")?;
-                self._write_centered(7, "1-5 to set output format")?;
+                self._write_centered(0, "Viuwa interative help:")?;
+                self._write_centered_aligned_all(
+                        1,
+                        &[
+                                "[q]: quit",
+                                "[r]: redraw",
+                                "[h]: help",
+                                "[f]: cycle output format",
+                                "[F]: cycle filter",
+                                "[1]: set output format to ANSI RGB",
+                                "[2]: set output format to ANSI 256",
+                                "[3]: set output format to ANSI Grey",
+                                "[Shift + 1]: set filter to nearest",
+                                "[Shift + 2]: set filter to triangle",
+                                "[Shift + 3]: set filter to catmull rom",
+                                "[Shift + 4]: set filter to gaussian",
+                                "[Shift + 5]: set filter to lanczos3",
+                        ]
+                        .to_vec(),
+                )?;
+                self.lock.write_all(ansi::cursor::to(0, self.term_size.1).as_bytes())?;
                 self.lock.flush()?;
                 let mut buf = [0; 1];
                 let mut stdin = stdin().lock();
@@ -327,7 +341,8 @@ impl<'a> Viuwa<'a> {
                         self._rebuild_buf();
                 }
         }
-        pub fn inline(orig: DynamicImage, filter: FilterType, format: OutFormat, size: (u16, u16)) -> BoxResult<()> {
+        pub fn inline(orig: DynamicImage, filter: FilterType, format: OutFormat, size: Option<(u16, u16)>) -> BoxResult<()> {
+                let size = if let Some(s) = size { s } else { stdout().size()? };
                 let orig = if orig.color().has_color() {
                         DynamicImage::ImageRgb8(orig.into_rgb8())
                 } else {
@@ -348,6 +363,18 @@ impl<'a> Viuwa<'a> {
                                 .as_bytes(),
                 )?;
                 Ok(())
+        }
+        fn _write_centered_aligned_all(&mut self, y: u16, s: &Vec<&str>) -> BoxResult<()> {
+                if let Some(max) = s.into_iter().map(|x| x.len()).max() {
+                        let ox = (self.term_size.0 - max as u16) / 2;
+                        for (i, line) in s.into_iter().enumerate() {
+                                self.lock
+                                        .write_all([&ansi::cursor::to(ox, y + i as u16), *line].concat().as_bytes())?;
+                        }
+                        Ok(())
+                } else {
+                        Err("No strings to write".into())
+                }
         }
         fn _cycle_filter(&mut self) {
                 self.filter = match self.filter {
