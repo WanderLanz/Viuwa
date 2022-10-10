@@ -113,16 +113,16 @@ fn parse_format_type<'a>(format: &'a str) -> Result<viuwa::OutFormat, String> {
 
 fn main() -> BoxResult<()> {
         let args = Args::parse();
-        println!("Loading image...");
+        eprintln!("Loading image...");
         let orig = image::open(&args.image)?;
-        println!("Starting app...");
+        eprintln!("Starting app...");
         if !args.inline {
                 #[cfg(windows)]
                 if !::crossterm::ansi_support::supports_ansi() {
                         return Err("detected no ansi support for windows".into());
                 }
                 #[cfg(not(any(windows, unix)))]
-                println!("WARNING: Without the inline flag, you may need to press enter to send input to the app");
+                eprintln!("WARNING: Without the inline flag, you may need to press enter to send input to the app");
                 Viuwa::new(orig, args.filter, args.format)?.spawn()?;
                 Ok(())
         } else {

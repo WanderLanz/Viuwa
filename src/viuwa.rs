@@ -20,7 +20,7 @@ pub enum OutFormat {
         // Sixel,
 }
 impl OutFormat {
-        #[cfg(not(any(feature = "iterm", feature = "sixel")))]
+        // #[cfg(not(any(feature = "iterm", feature = "sixel")))]
         pub fn cycle(&self) -> OutFormat {
                 match self {
                         OutFormat::AnsiRgb => OutFormat::Ansi256,
@@ -301,9 +301,8 @@ impl<'a> Viuwa<'a> {
         fn _help(&mut self) -> BoxResult<()> {
                 self.lock
                         .write_all([ansi::term::CLEAR_SCREEN, ansi::cursor::HOME].concat().as_bytes())?;
-                self._write_centered(0, "Viuwa interative help:")?;
-                self._write_centered_aligned_all(
-                        1,
+                self._write_centerx(0, "Viuwa interative help:")?;
+                self._write_centerxy_align_all(
                         &[
                                 "[q]: quit",
                                 "[r]: redraw",
@@ -354,9 +353,10 @@ impl<'a> Viuwa<'a> {
                         lock.write_all(line.as_bytes())?;
                 }
                 lock.flush()?;
+                stdin().read_exact(&mut [0; 1])?;
                 Ok(())
         }
-        fn _write_centered(&mut self, y: u16, s: &str) -> io::Result<()> {
+        fn _write_centerx(&mut self, y: u16, s: &str) -> io::Result<()> {
                 self.lock.write_all(
                         [&ansi::cursor::to((self.term_size.0 - s.len() as u16) / 2, y), s]
                                 .concat()
@@ -364,12 +364,13 @@ impl<'a> Viuwa<'a> {
                 )?;
                 Ok(())
         }
-        fn _write_centered_aligned_all(&mut self, y: u16, s: &Vec<&str>) -> BoxResult<()> {
+        fn _write_centerxy_align_all(&mut self, s: &Vec<&str>) -> BoxResult<()> {
                 if let Some(max) = s.into_iter().map(|x| x.len()).max() {
                         let ox = (self.term_size.0 - max as u16) / 2;
+                        let oy = (self.term_size.1 - s.len() as u16) / 2;
                         for (i, line) in s.into_iter().enumerate() {
                                 self.lock
-                                        .write_all([&ansi::cursor::to(ox, y + i as u16), *line].concat().as_bytes())?;
+                                        .write_all([&ansi::cursor::to(ox, oy + i as u16), *line].concat().as_bytes())?;
                         }
                         Ok(())
                 } else {

@@ -62,16 +62,19 @@ impl ViuwaImage {
                         })
                         .collect()
         }
-        /// Returns the image as ansi lines, with newline ansi and ansi resets.
+        /// Returns the image as ansi lines, with newlines and ansi resets. last last line is not terminated with a newline.
         pub fn to_ansi_inline(&self) -> Vec<String> {
-                self.to_ansi_rows_raw()
+                let mut rows: Vec<String> = self
+                        .to_ansi_rows_raw()
                         .into_iter()
                         .map(|mut s| {
                                 s.push_str(ansi::attr::RESET);
                                 s.push('\n');
                                 s
                         })
-                        .collect()
+                        .collect();
+                rows.last_mut().and_then(|s| s.pop());
+                rows
         }
         /// Covert rows of an image to ANSI color and "▀"and return them as a vector of strings, 2 rows of pixels per row of ansi.
         ///

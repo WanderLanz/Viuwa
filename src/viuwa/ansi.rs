@@ -144,7 +144,17 @@ where
         /// WARNING: this is a blocking call
         #[cfg(not(any(windows, unix)))]
         fn size(&mut self) -> io::Result<(u16, u16)> {
-                self.write_all(["Requesting terminal size report, please press enter when a report appears (e.g. \"^[[40;132R\")\n",term::SAVE_CURSOR,&cursor::to(Coord::MAX.x, Coord::MAX.y),term::REPORT_CURSOR_POSITION,term::RESTORE_CURSOR].concat().as_bytes())?;
+                eprintln!("Requesting terminal size report, please press enter when a report appears (e.g. \"^[[40;132R\")");
+                self.write_all(
+                        [
+                                term::SAVE_CURSOR,
+                                &cursor::to(Coord::MAX.x, Coord::MAX.y),
+                                term::REPORT_CURSOR_POSITION,
+                                term::RESTORE_CURSOR,
+                        ]
+                        .concat()
+                        .as_bytes(),
+                )?;
                 self.flush()?;
                 let mut buf = [0; 1];
                 let mut s = Vec::<u8>::with_capacity(10);
