@@ -1,10 +1,13 @@
 [package]
 name = "viuwa"
-version = "0.0.42"
+version = "0.0.43"
 edition = "2021"
 authors = ["Lance Warden"]
 description = "Yet another \"super simple\" cli/tui ANSI image viewer. Viuwa is not a fork of viu, but it is inspired by it."
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/WanderLanz/Viuwa"
+keywords = ["image-viewer", "ansi", "cli", "tui"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 clap = { version = "4.0.*", features = ["derive", "env"] }

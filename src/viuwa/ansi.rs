@@ -23,6 +23,7 @@
 //!     - https://github.com/mintty/mintty/wiki/CtrlSeqs
 //!  - sixel:              
 //!     - https://en.wikipedia.org/wiki/Sixel
+//!     - https://konfou.xyz/posts/sixel-for-terminal-graphics
 //!  - sixel spec:          
 //!     - https://vt100.net/docs/vt510-rm/sixel.html
 //!  
@@ -37,7 +38,7 @@
 #![allow(dead_code)]
 use crate::BoxResult;
 use std::io::{self, Write};
-#[cfg(not(any(unix, windows)))]
+#[cfg(target_family = "wasm")]
 use std::io::{stdin, Read};
 macro_rules! esc {
         ($( $l:expr ),*) => { concat!('\x1B', $( $l ),*) };
@@ -97,6 +98,7 @@ pub mod attr {
 
 pub mod color;
 
+/// Add terminal ANSI writes to a impl Write
 pub trait TerminalImpl
 where
         Self: Write + Sized,
@@ -118,12 +120,12 @@ where
         #[cfg(any(windows, unix))]
         #[inline]
         fn enable_raw_mode(&mut self) -> io::Result<()> { ::crossterm::terminal::enable_raw_mode() }
-        #[cfg(not(any(windows, unix)))]
+        #[cfg(target_family = "wasm")]
         fn enable_raw_mode(&mut self) -> io::Result<()> { self.write_all(term::ENABLE_RAW_MODE.as_bytes()) }
         #[cfg(any(windows, unix))]
         #[inline]
         fn disable_raw_mode(&mut self) -> io::Result<()> { ::crossterm::terminal::disable_raw_mode() }
-        #[cfg(not(any(windows, unix)))]
+        #[cfg(target_family = "wasm")]
         fn disable_raw_mode(&mut self) -> io::Result<()> { self.write_all(term::DISABLE_RAW_MODE.as_bytes()) }
 
         /// Set the window title using ansi escape codes
@@ -135,16 +137,26 @@ where
         /// Attempt to read the terminal size in characters
         #[cfg(any(windows, unix))]
         #[inline]
-        fn size(&mut self) -> io::Result<(u16, u16)> { ::crossterm::terminal::size() }
+        fn size(&mut self, _: bool) -> io::Result<(u16, u16)> { ::crossterm::terminal::size() }
         /// Attempt to read the terminal size in characters using only ANSI escape sequences
         ///   
         /// It is not guaranteed to work, although more universal than a direct x-term style ANSI window size request "\x1B[18t".  
         /// Works best in raw alternate screen mode.
         /// relies on the user to press enter because we cannot read stdout.
         /// WARNING: this is a blocking call
-        #[cfg(not(any(windows, unix)))]
-        fn size(&mut self) -> io::Result<(u16, u16)> {
-                eprintln!("Requesting terminal size report, please press enter when a report appears (e.g. \"^[[40;132R\")");
+        #[cfg(target_family = "wasm")]
+        fn size(&mut self, quiet: bool) -> io::Result<(u16, u16)> {
+                // if terms who don't support cursor report at least export COLUMNS and LINES, then we can use that, even if it's not accurate
+                if let Ok(s) = std::env::var("COLUMNS").and_then(|cols| std::env::var("LINES").map(|lines| (cols, lines))) {
+                        if let (Ok(cols), Ok(lines)) = (s.0.parse(), s.1.parse()) {
+                                return Ok((cols, lines));
+                        }
+                }
+                // otherwise, we can try to get the cursor position, but this is not guaranteed to work and user might have to press enter
+                if !quiet {
+                        eprintln!("Requesting terminal size report, please press enter when a report appears (e.g. \"^[[40;132R\")");
+                        eprintln!("If no report appears, then you may need to set --size.");
+                }
                 self.write_all(
                         [
                                 term::SAVE_CURSOR,
@@ -161,33 +173,24 @@ where
                 loop {
                         stdin().read_exact(&mut buf)?;
                         match buf[0] {
-                                b'\x1B' => {
-                                        stdin().read_exact(&mut buf)?;
-                                        if buf[0] != b'[' {
-                                                continue;
-                                        }
-                                        loop {
-                                                stdin().read_exact(&mut buf)?;
-                                                if buf[0] == b'R' || buf[0] == b'\0' {
-                                                        break;
-                                                }
-                                                s.push(buf[0]);
-                                        }
-                                        break;
-                                }
-                                b'\0' | b'\n' => break,
-                                _ => (),
+                                b'0'..=b'9' | b';' => s.push(buf[0]),
+                                b'\0' | b'\n' | b'\r' | b'R' => break,
+                                _ => continue,
                         }
                 }
-                let s = String::from_utf8(s).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-                if let Ok(coord) = Coord::try_from_report(&s) {
-                        Ok((coord.x + 1, coord.y + 1))
-                } else {
-                        Err(io::Error::new(
-                                io::ErrorKind::InvalidData,
-                                "failed to read terminal size using ANSI escape sequences",
-                        ))
+                if let Ok(s) = String::from_utf8(s) {
+                        if let Ok(coord) = Coord::try_from_report(&s) {
+                                return Ok((coord.x + 1, coord.y + 1));
+                        }
                 }
+                if !quiet {
+                        eprintln!(
+                                "Failed to parse terminal size report, defaulting to {}x{}",
+                                crate::DEFAULT_COLS,
+                                crate::DEFAULT_ROWS
+                        );
+                }
+                Ok((crate::DEFAULT_COLS, crate::DEFAULT_ROWS))
         }
         fn cursor(&mut self) -> Cursor<Self> { Cursor::new(self) }
         fn cursor_hide(&mut self) -> io::Result<()> { self.write_all(term::HIDE_CURSOR.as_bytes()) }

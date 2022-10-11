@@ -9,23 +9,23 @@ use crate::UPPER_HALF_BLOCK;
 
 use super::{
         ansi::{self, color, cursor},
-        OutFormat,
+        ColorType,
 };
 
 pub enum ViuwaImage {
-        Rgb(RgbImage, OutFormat),
-        Luma(GrayImage, OutFormat),
+        Rgb(RgbImage, ColorType),
+        Luma(GrayImage, ColorType),
 }
 
 impl ViuwaImage {
-        pub fn new(img: DynamicImage, format: OutFormat) -> Self {
-                match img.color() {
-                        image::ColorType::L8 => ViuwaImage::Luma(img.into_luma8(), format),
-                        image::ColorType::Rgb8 => match format {
-                                OutFormat::AnsiGrey => ViuwaImage::Luma(img.into_luma8(), format),
-                                _ => ViuwaImage::Rgb(img.into_rgb8(), format),
-                        },
-                        _ => unreachable!("Failed to convert image to RGB or Luma before creating ViuwaImage"),
+        pub fn new(orig: DynamicImage, color: ColorType) -> Self {
+                if orig.color().has_color() {
+                        match color {
+                                ColorType::AnsiGrey => ViuwaImage::Luma(orig.into_luma8(), color),
+                                _ => ViuwaImage::Rgb(orig.into_rgb8(), color),
+                        }
+                } else {
+                        ViuwaImage::Luma(orig.into_luma8(), color)
                 }
         }
         pub fn dimensions(&self) -> (u32, u32) {
@@ -34,20 +34,8 @@ impl ViuwaImage {
                         ViuwaImage::Luma(img, _) => img.dimensions(),
                 }
         }
-        pub fn width(&self) -> u32 {
-                match self {
-                        ViuwaImage::Rgb(img, _) => img.width(),
-                        ViuwaImage::Luma(img, _) => img.width(),
-                }
-        }
-        pub fn height(&self) -> u32 {
-                match self {
-                        ViuwaImage::Rgb(img, _) => img.height(),
-                        ViuwaImage::Luma(img, _) => img.height(),
-                }
-        }
         /// Returns the image as ansi lines, with cursor movement and ansi resets to center within given window.
-        pub fn to_ansi_window(&self, window_size: (u16, u16)) -> Vec<String> {
+        pub fn to_ansi_windowed(&self, window_size: (u16, u16)) -> Vec<String> {
                 let (w, h) = self.dimensions();
                 let ox = ((window_size.0 as u32 - w) / 2) as u16;
                 let oy = (((window_size.1 as u32 * 2) - h) / 4) as u16;
@@ -64,17 +52,14 @@ impl ViuwaImage {
         }
         /// Returns the image as ansi lines, with newlines and ansi resets. last last line is not terminated with a newline.
         pub fn to_ansi_inline(&self) -> Vec<String> {
-                let mut rows: Vec<String> = self
-                        .to_ansi_rows_raw()
+                self.to_ansi_rows_raw()
                         .into_iter()
                         .map(|mut s| {
                                 s.push_str(ansi::attr::RESET);
                                 s.push('\n');
                                 s
                         })
-                        .collect();
-                rows.last_mut().and_then(|s| s.pop());
-                rows
+                        .collect()
         }
         /// Covert rows of an image to ANSI color and "▀"and return them as a vector of strings, 2 rows of pixels per row of ansi.
         ///
@@ -82,44 +67,21 @@ impl ViuwaImage {
         pub fn to_ansi_rows_raw(&self) -> Vec<String> {
                 match self {
                         // image are already set to Rgb or Luma based on the format
-                        ViuwaImage::Rgb(img, fmt) => {
-                                match fmt {
-                                        OutFormat::AnsiRgb => Self::map_rows(
-                                                img.width() as u16,
-                                                img.rows(),
-                                                Self::_rows2_24rgb,
-                                                Self::_row_24rgb,
-                                        ),
-                                        OutFormat::Ansi256 => Self::map_rows(
-                                                img.width() as u16,
-                                                img.rows(),
-                                                Self::_row2_8rgb,
-                                                Self::_row_8rgb,
-                                        ),
-                                        _ => unreachable!(
-                                                "Failed to format image before attempting to transform into ansi."
-                                        ), // ignore sixel, iterm, and greyscale
+                        ViuwaImage::Rgb(img, col) => match col {
+                                ColorType::TrueColor => {
+                                        Self::map_rows(img.width() as u16, img.rows(), Self::_rows2_24rgb, Self::_row_24rgb)
                                 }
-                        }
-                        ViuwaImage::Luma(img, fmt) => {
-                                match fmt {
-                                        OutFormat::AnsiGrey => Self::map_rows(
-                                                img.width() as u16,
-                                                img.rows(),
-                                                Self::_row2_24grey,
-                                                Self::_row_24grey,
-                                        ),
-                                        OutFormat::Ansi256 => Self::map_rows(
-                                                img.width() as u16,
-                                                img.rows(),
-                                                Self::_row2_8grey,
-                                                Self::_row_8grey,
-                                        ),
-                                        _ => unreachable!(
-                                                "Failed to format image before attempting to transform into ansi."
-                                        ), // ignore sixel, iterm, and color
+                                ColorType::Ansi256 => {
+                                        Self::map_rows(img.width() as u16, img.rows(), Self::_row2_8rgb, Self::_row_8rgb)
                                 }
-                        }
+                                _ => unreachable!("ViuwaImage::Rgb with grey format"),
+                        },
+                        ViuwaImage::Luma(img, fmt) => match fmt {
+                                ColorType::Ansi256 => {
+                                        Self::map_rows(img.width() as u16, img.rows(), Self::_row2_8grey, Self::_row_8grey)
+                                }
+                                _ => Self::map_rows(img.width() as u16, img.rows(), Self::_row2_24grey, Self::_row_24grey),
+                        },
                 }
         }
         /// Map rows of an image to ANSI escape sequences and return them as a vector of strings, 2 rows of pixels per row of ansi.
@@ -130,7 +92,7 @@ impl ViuwaImage {
                 F1: Fn(u16, Pixels<P>) -> String,
         {
                 iter::repeat_with(move || (rows.next(), rows.next()))
-                        .map_while(|(fgs, bgs)| match (fgs, bgs) {
+                        .map_while(|pxs| match pxs {
                                 (Some(fgs), Some(bgs)) => Some(f2(w, fgs, bgs)),
                                 (Some(fgs), None) => Some(f1(w, fgs)),
                                 _ => None,

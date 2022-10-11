@@ -1,3 +1,5 @@
 /target
+/*.ignore.*
 /*.gif
 /*.png
+/.vscode

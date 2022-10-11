@@ -10,83 +10,50 @@ use image::{imageops::FilterType, DynamicImage};
 use self::ansi::TerminalImpl;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutFormat {
-        AnsiRgb,
+pub enum ColorType {
+        TrueColor,
         Ansi256,
         AnsiGrey,
-        // #[cfg(feature = "iterm")]
-        // Iterm,
-        // #[cfg(feature = "sixel")]
-        // Sixel,
 }
-impl OutFormat {
-        // #[cfg(not(any(feature = "iterm", feature = "sixel")))]
-        pub fn cycle(&self) -> OutFormat {
+impl ColorType {
+        pub fn cycle(&self) -> ColorType {
                 match self {
-                        OutFormat::AnsiRgb => OutFormat::Ansi256,
-                        OutFormat::Ansi256 => OutFormat::AnsiGrey,
-                        OutFormat::AnsiGrey => OutFormat::AnsiRgb,
+                        ColorType::TrueColor => ColorType::Ansi256,
+                        ColorType::Ansi256 => ColorType::AnsiGrey,
+                        ColorType::AnsiGrey => ColorType::TrueColor,
                 }
         }
-        // #[cfg(all(feature = "iterm", feature = "sixel"))]
-        // pub fn cycle(&self) -> OutFormat {
-        //         match self {
-        //                 OutFormat::AnsiRgb => OutFormat::Ansi256,
-        //                 OutFormat::Ansi256 => OutFormat::AnsiGrey,
-        //                 OutFormat::AnsiGrey => OutFormat::Iterm,
-        //                 OutFormat::Iterm => OutFormat::Sixel,
-        //                 OutFormat::Sixel => OutFormat::AnsiRgb,
-        //         }
-        // }
-        // #[cfg(all(feature = "iterm", not(feature = "sixel")))]
-        // pub fn cycle(&self) -> OutFormat {
-        //         match self {
-        //                 OutFormat::AnsiRgb => OutFormat::Ansi256,
-        //                 OutFormat::Ansi256 => OutFormat::AnsiGrey,
-        //                 OutFormat::AnsiGrey => OutFormat::Iterm,
-        //                 OutFormat::Iterm => OutFormat::AnsiRgb,
-        //         }
-        // }
-        // #[cfg(all(not(feature = "iterm"), feature = "sixel"))]
-        // pub fn cycle(&self) -> OutFormat {
-        //         match self {
-        //                 OutFormat::AnsiRgb => OutFormat::Ansi256,
-        //                 OutFormat::Ansi256 => OutFormat::AnsiGrey,
-        //                 OutFormat::AnsiGrey => OutFormat::Sixel,
-        //                 OutFormat::Sixel => OutFormat::AnsiRgb,
-        //         }
-        // }
 }
 
 pub struct Viuwa<'a> {
         pub orig: DynamicImage,
         pub buf: Vec<String>,
         pub filter: FilterType,
-        pub format: OutFormat,
-        pub term_size: (u16, u16),
+        pub color: ColorType,
+        pub size: (u16, u16),
         pub lock: StdoutLock<'a>,
+        pub quiet: bool,
 }
 
 impl<'a> Viuwa<'a> {
-        pub fn new(orig: DynamicImage, filter: FilterType, format: OutFormat) -> BoxResult<Self> {
+        /// Create a new viuwa instance
+        pub fn new(orig: DynamicImage, filter: FilterType, color: ColorType, quiet: bool) -> BoxResult<Self> {
                 let mut lock = stdout().lock();
-                let term_size = lock.size()?;
-                let orig = if orig.color().has_color() {
-                        DynamicImage::ImageRgb8(orig.into_rgb8())
-                } else {
-                        DynamicImage::ImageLuma8(orig.into_luma8())
-                };
-                let buf = ViuwaImage::new(orig.resize(term_size.0 as u32, term_size.1 as u32 * 2, filter), format)
-                        .to_ansi_window(term_size);
+                let size = lock.size(quiet)?;
+                let buf =
+                        ViuwaImage::new(orig.resize(size.0 as u32, size.1 as u32 * 2, filter), color).to_ansi_windowed(size);
                 Ok(Self {
                         orig,
                         buf,
                         filter,
-                        format,
-                        term_size,
+                        color,
+                        size,
                         lock,
+                        quiet,
                 })
         }
+        // seperate spawns because of resize event
+        /// Start viuwa app
         #[cfg(any(unix, windows))]
         pub fn spawn(mut self) -> BoxResult<()> {
                 use crossterm::event::{Event, KeyCode, KeyEventKind};
@@ -114,41 +81,29 @@ impl<'a> Viuwa<'a> {
                                                 self._help()?;
                                                 self._draw()?;
                                         }
-                                        KeyCode::Char('F') => {
+                                        KeyCode::Char('f') => {
                                                 self._cycle_filter();
                                                 self._draw()?;
                                         }
-                                        KeyCode::Char('f') => {
-                                                self._cycle_format();
+                                        KeyCode::Char('c') => {
+                                                self._cycle_color();
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('1') => {
-                                                self.format = OutFormat::AnsiRgb;
+                                                self.color = ColorType::TrueColor;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('2') => {
-                                                self.format = OutFormat::Ansi256;
+                                                self.color = ColorType::Ansi256;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('3') => {
-                                                self.format = OutFormat::AnsiGrey;
+                                                self.color = ColorType::AnsiGrey;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
-                                        // #[cfg(feature = "iterm")]
-                                        // KeyCode::Char('4') => {
-                                        //         self.format = OutFormat::Iterm;
-                                        //         self._rebuild_buf();
-                                        //         self._draw()?;
-                                        // }
-                                        // #[cfg(feature = "sixel")]
-                                        // KeyCode::Char('5') => {
-                                        //         self.format = OutFormat::Sixel;
-                                        //         self._rebuild_buf();
-                                        //         self._draw()?;
-                                        // }
                                         KeyCode::Char('!') => {
                                                 self.filter = FilterType::Nearest;
                                                 self._rebuild_buf();
@@ -196,7 +151,8 @@ impl<'a> Viuwa<'a> {
                 self.lock.flush()?;
                 Ok(())
         }
-        #[cfg(not(any(unix, windows)))]
+        /// Start viuwa app
+        #[cfg(target_family = "wasm")]
         pub fn spawn(mut self) -> BoxResult<()> {
                 self.lock.enable_raw_mode()?;
                 self.lock.write_all(
@@ -208,6 +164,7 @@ impl<'a> Viuwa<'a> {
                         .concat()
                         .as_bytes(),
                 )?;
+                self.lock.flush()?;
                 self._draw()?;
                 let mut buf = [0; 1];
                 loop {
@@ -215,8 +172,8 @@ impl<'a> Viuwa<'a> {
                         match buf[0] {
                                 b'q' => break,
                                 b'r' => {
-                                        let term_size = self.lock.size()?;
-                                        self._handle_resize(term_size.0, term_size.1);
+                                        let size = self.lock.size(self.quiet)?;
+                                        self._handle_resize(size.0, size.1);
                                         self._draw()?;
                                 }
                                 b'h' => {
@@ -224,25 +181,25 @@ impl<'a> Viuwa<'a> {
                                         self._draw()?;
                                 }
                                 b'f' => {
-                                        self._cycle_format();
-                                        self._draw()?;
-                                }
-                                b'F' => {
                                         self._cycle_filter();
                                         self._draw()?;
                                 }
+                                b'c' => {
+                                        self._cycle_color();
+                                        self._draw()?;
+                                }
                                 b'1' => {
-                                        self.format = OutFormat::AnsiRgb;
+                                        self.color = ColorType::TrueColor;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
                                 b'2' => {
-                                        self.format = OutFormat::Ansi256;
+                                        self.color = ColorType::Ansi256;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
                                 b'3' => {
-                                        self.format = OutFormat::AnsiGrey;
+                                        self.color = ColorType::AnsiGrey;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
@@ -287,17 +244,18 @@ impl<'a> Viuwa<'a> {
                 self.lock.flush()?;
                 Ok(())
         }
+        /// Write the buffer to the terminal, and move the cursor to the bottom left
         fn _draw(&mut self) -> BoxResult<()> {
                 self.lock.clear_screen()?;
                 // let mut print_queue = Arc::new(Mutex::new(VecDeque::with_capacity(self.px_size.1 as usize)));
                 for line in self.buf.iter() {
                         self.lock.write_all(line.as_bytes())?;
                 }
-                self.lock.write_all(ansi::cursor::to(0, self.term_size.1).as_bytes())?;
+                self.lock.write_all(ansi::cursor::to(0, self.size.1).as_bytes())?;
                 self.lock.flush()?;
                 Ok(())
         }
-        /// clear screen , print help, and quit 'q'
+        /// clear screen, print help, and quit 'q'
         fn _help(&mut self) -> BoxResult<()> {
                 self.lock
                         .write_all([ansi::term::CLEAR_SCREEN, ansi::cursor::HOME].concat().as_bytes())?;
@@ -307,11 +265,11 @@ impl<'a> Viuwa<'a> {
                                 "[q]: quit",
                                 "[r]: redraw",
                                 "[h]: help",
-                                "[f]: cycle output format",
-                                "[F]: cycle filter",
-                                "[1]: set output format to ANSI RGB",
-                                "[2]: set output format to ANSI 256",
-                                "[3]: set output format to ANSI Grey",
+                                "[c]: cycle color",
+                                "[f]: cycle filter",
+                                "[1]: set color to Truecolor",
+                                "[2]: set color to 256",
+                                "[3]: set color to Grey",
                                 "[Shift + 1]: set filter to nearest",
                                 "[Shift + 2]: set filter to triangle",
                                 "[Shift + 3]: set filter to catmull rom",
@@ -320,7 +278,7 @@ impl<'a> Viuwa<'a> {
                         ]
                         .to_vec(),
                 )?;
-                self.lock.write_all(ansi::cursor::to(0, self.term_size.1).as_bytes())?;
+                self.lock.write_all(ansi::cursor::to(0, self.size.1).as_bytes())?;
                 self.lock.flush()?;
                 let mut buf = [0; 1];
                 let mut stdin = stdin().lock();
@@ -333,41 +291,45 @@ impl<'a> Viuwa<'a> {
                 }
                 Ok(())
         }
+        /// handle resize event
         fn _handle_resize(&mut self, w: u16, h: u16) {
                 let nsz = (w + 1, h + 1);
-                if nsz != self.term_size {
-                        self.term_size = nsz;
+                if nsz != self.size {
+                        self.size = nsz;
                         self._rebuild_buf();
                 }
         }
-        pub fn inline(orig: DynamicImage, filter: FilterType, format: OutFormat, size: Option<(u16, u16)>) -> BoxResult<()> {
-                let size = if let Some(s) = size { s } else { stdout().size()? };
-                let orig = if orig.color().has_color() {
-                        DynamicImage::ImageRgb8(orig.into_rgb8())
-                } else {
-                        DynamicImage::ImageLuma8(orig.into_luma8())
-                };
-                let buf = ViuwaImage::new(orig.resize(size.0 as u32, size.1 as u32 * 2, filter), format).to_ansi_inline();
+        /// Print ANSI image to stdout without attempting to use alternate screen buffer or other fancy stuff
+        pub fn inline(
+                orig: DynamicImage,
+                filter: FilterType,
+                color: ColorType,
+                size: Option<(u16, u16)>,
+                quiet: bool,
+        ) -> BoxResult<()> {
+                let size = if let Some(s) = size { s } else { stdout().size(quiet)? };
+                let buf = ViuwaImage::new(orig.resize(size.0 as u32, size.1 as u32 * 2, filter), color).to_ansi_inline();
                 let mut lock = stdout().lock();
                 for line in buf.iter() {
                         lock.write_all(line.as_bytes())?;
                 }
                 lock.flush()?;
-                stdin().read_exact(&mut [0; 1])?;
                 Ok(())
         }
+        /// print a string centered on the x axis
         fn _write_centerx(&mut self, y: u16, s: &str) -> io::Result<()> {
                 self.lock.write_all(
-                        [&ansi::cursor::to((self.term_size.0 - s.len() as u16) / 2, y), s]
+                        [&ansi::cursor::to((self.size.0 - s.len() as u16) / 2, y), s]
                                 .concat()
                                 .as_bytes(),
                 )?;
                 Ok(())
         }
+        /// print strings centered and aligned on the x axis and y axis
         fn _write_centerxy_align_all(&mut self, s: &Vec<&str>) -> BoxResult<()> {
                 if let Some(max) = s.into_iter().map(|x| x.len()).max() {
-                        let ox = (self.term_size.0 - max as u16) / 2;
-                        let oy = (self.term_size.1 - s.len() as u16) / 2;
+                        let ox = (self.size.0 - max as u16) / 2;
+                        let oy = (self.size.1 - s.len() as u16) / 2;
                         for (i, line) in s.into_iter().enumerate() {
                                 self.lock
                                         .write_all([&ansi::cursor::to(ox, oy + i as u16), *line].concat().as_bytes())?;
@@ -377,6 +339,7 @@ impl<'a> Viuwa<'a> {
                         Err("No strings to write".into())
                 }
         }
+        /// Cycle through filter types, and rebuild buffer
         fn _cycle_filter(&mut self) {
                 self.filter = match self.filter {
                         FilterType::Nearest => FilterType::Triangle,
@@ -387,28 +350,17 @@ impl<'a> Viuwa<'a> {
                 };
                 self._rebuild_buf();
         }
-        fn _cycle_format(&mut self) {
-                self.format = self.format.cycle();
+        /// Cycle through output formats, and rebuild buffer
+        fn _cycle_color(&mut self) {
+                self.color = self.color.cycle();
                 self._rebuild_buf();
         }
+        /// Rebuild the buffer with the current image, filter, and format
         fn _rebuild_buf(&mut self) {
                 self.buf = ViuwaImage::new(
-                        self.orig
-                                .resize(self.term_size.0 as u32, self.term_size.1 as u32 * 2, self.filter),
-                        self.format,
+                        self.orig.resize(self.size.0 as u32, self.size.1 as u32 * 2, self.filter),
+                        self.color,
                 )
-                .to_ansi_window(self.term_size);
+                .to_ansi_windowed(self.size);
         }
-        // pub fn sixel(orig: DynamicImage, filter: FilterType, format: OutFormat, size: (u16, u16)) -> BoxResult<()> {
-        //         let orig = if orig.color().has_color() {
-        //                 DynamicImage::ImageRgb8(orig.into_rgb8())
-        //         } else {
-        //                 DynamicImage::ImageLuma8(orig.into_luma8())
-        //         };
-        //         let buf = ViuwaImage::new(orig.resize(size.0 as u32, size.1 as u32 * 2, filter), format).to_sixel();
-        //         let mut lock = stdout().lock();
-        //         lock.write_all(buf.as_bytes())?;
-        //         lock.flush()?;
-        //         Ok(())
-        // }
 }
