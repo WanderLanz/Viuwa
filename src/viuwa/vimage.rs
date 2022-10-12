@@ -129,8 +129,8 @@ impl ViuwaImage {
         /// 2 rows to 8bit greyscale
         fn _row2_8grey(w: u16, fgs: Pixels<Luma<u8>>, bgs: Pixels<Luma<u8>>) -> String {
                 Self::__row2_8bit(w, fgs, bgs, |mut a, (fg, bg)| {
-                        a.push_str(&color::set_fg8(color::GREY_TO_256[fg.0[0] as usize]));
-                        a.push_str(&color::set_bg8(color::GREY_TO_256[bg.0[0] as usize]));
+                        a.push_str(&color::set_fg8(color::grey_to_256(fg.0[0])));
+                        a.push_str(&color::set_bg8(color::grey_to_256(bg.0[0])));
                         a.push_str(UPPER_HALF_BLOCK);
                         a
                 })
@@ -162,7 +162,7 @@ impl ViuwaImage {
         /// 1 row to 8bit greyscale
         fn _row_8grey(w: u16, fgs: Pixels<Luma<u8>>) -> String {
                 Self::__row_8bit(w, fgs, |mut a, fg| {
-                        a.push_str(&color::set_fg8(color::GREY_TO_256[fg.0[0] as usize]));
+                        a.push_str(&color::set_fg8(color::grey_to_256(fg.0[0])));
                         a.push_str(UPPER_HALF_BLOCK);
                         a
                 })

@@ -2,9 +2,6 @@
 
 Viuwa is a simple terminal ANSI image viewer trying to maintain bare-minimum compatibility with the wasm32-wasi target.
 
-We use the [image](https://crates.io/crates/image), [clap](https://crates.io/crates/clap), and the [crossterm](https://crates.io/crates/crossterm) crates
-for cli tooling, image manipulation, and UNIX/Windows platform specific tui tooling.
-
 It uses almost *exclusively* ANSI escape codes to display
 images in the terminal.
 
@@ -51,7 +48,7 @@ viuwa --help
 
 ### Configuration file
 
-Not yet implemented, but will be implemented in the future.
+Not yet implemented, but will be implemented in the future if environment becomes too cumbersome.
 
 ## License
 
@@ -66,4 +63,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - [clap](https://crates.io/crates/clap)
 - [image](https://crates.io/crates/image)
-- [crossterm](https://crates.io/crates/crossterm)
+- [crossterm](https://crates.io/crates/crossterm) (on Unix & Windows)
+- [ansi_colours](https://crates.io/crates/ansi_colours)

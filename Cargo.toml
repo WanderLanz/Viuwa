@@ -1,6 +1,6 @@
 [package]
 name = "viuwa"
-version = "0.0.43"
+version = "0.0.44"
 edition = "2021"
 authors = ["Lance Warden"]
 description = "Yet another \"super simple\" cli/tui ANSI image viewer. Viuwa is not a fork of viu, but it is inspired by it."
@@ -11,7 +11,8 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 clap = { version = "4.0.*", features = ["derive", "env"] }
-image = "0.24.*"
+image = "0.24.4"
+ansi_colours = "1.1.*"
 # base64 = { version = "0.13.*", optional = true }
 
 [target.'cfg(any(unix,windows))'.dependencies]
