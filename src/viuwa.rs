@@ -259,7 +259,7 @@ impl<'a> Viuwa<'a> {
         fn _help(&mut self) -> BoxResult<()> {
                 self.lock
                         .write_all([ansi::term::CLEAR_SCREEN, ansi::cursor::HOME].concat().as_bytes())?;
-                self._write_centerx(0, "Viuwa interative help:")?;
+                self._write_centerx(0, "Viuwa help:")?;
                 self._write_centerxy_align_all(
                         &[
                                 "[q]: quit",

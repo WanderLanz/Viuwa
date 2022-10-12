@@ -42,6 +42,22 @@ viuwa [image] --inline
 viuwa --help
 ```
 
+## Examples
+
+All examples using 1080p monitor and Windows Terminal
+
+inlined w/ nearest filter
+
+![inlined-f1](/img/lights-inline.png)
+
+tui w/ triangle filter
+
+![tui-f2](/img/lights-tui-triangle.png)
+
+tui help
+
+![tui-help](/img/viuwa-tui-help.png)
+
 ## Configuration
 
 ### Environment variables
