@@ -16,6 +16,12 @@ Pull requests implementing different protocols are allowed as long as they don't
 cargo install viuwa
 ```
 
+or for latest version
+
+```bash
+git clone https://github.com/WanderLanz/Viuwa.git && cd Viuwa && cargo install --path .
+```
+
 ## Usage
 
 ### Windowed image viewing (e.g. Vim)
