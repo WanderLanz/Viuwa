@@ -1,5 +1,13 @@
 # Viuwa
 
+[![crate](https://img.shields.io/crates/v/viuwa.svg?style=for-the-badge)](https://crates.io/crates/viuwa)
+[![crate all releases](https://img.shields.io/crates/d/viuwa?color=fe7d37&style=for-the-badge)](https://crates.io/crates/viuwa)
+
+[![github](https://img.shields.io/github/v/release/WanderLanz/Viuwa?include_prereleases&label=GITHUB&style=for-the-badge)](https://github.com/WanderLanz/Viuwa)
+[![github all releases](https://img.shields.io/github/downloads/WanderLanz/Viuwa/total?style=for-the-badge)](https://github.com/WanderLanz/Viuwa/releases)
+
+[![license](https://img.shields.io/crates/l/viuwa.svg?style=for-the-badge)](NOTICES.txt)
+
 Viuwa is a simple terminal ANSI image viewer trying to maintain bare-minimum compatibility with the wasm32-wasi target.
 
 It uses almost *exclusively* ANSI escape codes to display
@@ -22,6 +30,8 @@ or for latest version
 git clone https://github.com/WanderLanz/Viuwa.git && cd Viuwa && cargo install --path .
 ```
 
+wasm file is also available in the releases section.
+
 ## Usage
 
 ### Windowed image viewing (e.g. Vim)
@@ -30,7 +40,7 @@ git clone https://github.com/WanderLanz/Viuwa.git && cd Viuwa && cargo install -
 viuwa [image]
 ```
 
-### Directly to stdout (e.g. Catimg)
+### Directly to command line (e.g. Catimg)
 
 ```bash
 viuwa [image] --inline
@@ -44,11 +54,9 @@ viuwa --help
 
 ## Examples
 
-All examples using 1080p monitor and Windows Terminal
-
 inlined w/ nearest filter
 
-![inlined-f1](/img/lights-inline.png)
+![cli-f1](/img/lights-inline.png)
 
 tui w/ triangle filter
 
@@ -62,15 +70,22 @@ tui help
 
 ### Environment variables
 
-- `VIUWA_INLINE`: If set to `true`, viuwa will print the image directly to stdout instead of using the tui.
-- `VIUWA_SIZE`: When inline is set, this variable will be used to set the size of the output ANSI image. e.g. `VIUWA_SIZE=100x100` will set the output image to 100x100 characters. (if you have `$COLUMNS` or `$LINES` set, you can also set `VIUWA_SIZE="${COLUMNS}x${LINES}"`)
-- `VIUWA_FILTER`: Set the filter type to use when resizing the image. Possible values are `Nearest`, `Triangle`, `CatmullRom`, `Gaussian`, `Lanczos3`. Defaults to `Nearest`.
-- `VIUWA_COLOR`: Set the color type of the output ansi image. Possible values are `Truecolor`, `256`, `Grey`. Defaults to `Truecolor`.
+All Modes:
+
 - `VIUWA_QUIET`: If set to `true`, viuwa will not print any messages or warnings.
+- `VIUWA_FILTER`: Set the filter type to use when resizing the image. Possible values are `Nearest`, `Triangle`, `CatmullRom`, `Gaussian`, `Lanczos3`. Defaults to `Nearest`.
+- `VIUWA_COLOR`: Set the color type of the output ansi image. Possible values are `Truecolor`, `256`, `Gray`, and `256Gray`. Defaults to `Truecolor`.
+- `VIUWA_CORRECT`: Set the luma correction level for 256 color mode, allows more pixels to be converted to grayscale for better contrast. 0-100, Defaults to `100`.
 
-### Configuration file
+Inlined (CLI) Mode:
 
-Not yet implemented, but will be implemented in the future if environment becomes too cumbersome.
+- `VIUWA_INLINE`: If set to `true`, viuwa will inline the resulting ANSI image instead of using a tui.
+- `VIUWA_WIDTH`: Set width of inlined ANSI image, else does nothing.
+- `VIUWA_HEIGHT`: Set height of inlined ANSI image, else does nothing.
+
+## Known Issues
+
+- On wasm, the wasm runtime may kill the program while it waits for user input. May cause terminal to be left in a weird state and may require restarting the terminal.
 
 ## License
 
@@ -83,7 +98,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Dependencies
 
-- [clap](https://crates.io/crates/clap)
-- [image](https://crates.io/crates/image)
-- [crossterm](https://crates.io/crates/crossterm) (on Unix & Windows)
-- [ansi_colours](https://crates.io/crates/ansi_colours)
+- [![clap crate](https://img.shields.io/static/v1?label=crates.io&message=clap&color=orange&logo=rust&style=flat)](https://crates.io/crates/clap)
+- [![image crate](https://img.shields.io/static/v1?label=crates.io&message=image&color=orange&logo=rust&style=flat)](https://crates.io/crates/image)
+- [![crossterm crate](https://img.shields.io/static/v1?label=crates.io&message=crossterm&color=orange&logo=rust&style=flat)](https://crates.io/crates/crossterm)

@@ -1,55 +1,78 @@
-use crate::BoxResult;
+use crate::{Args, BoxResult};
 pub mod ansi;
-mod vimage;
-pub use vimage::ViuwaImage;
+mod viuwa_image;
 
 use std::io::{self, stdin, stdout, Read, StdoutLock, Write};
 
 use image::{imageops::FilterType, DynamicImage};
 
-use self::ansi::TerminalImpl;
+use self::{ansi::TerminalImpl, viuwa_image::AnsiImage};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ColorType {
-        TrueColor,
-        Ansi256,
-        AnsiGrey,
+/// Wrapper around possibly user-controlled color attributes
+#[derive(Debug, Clone, Copy)]
+pub struct ColorAttributes {
+        /// luma correct as a color distance threshold
+        pub luma_correct: u32,
 }
-impl ColorType {
-        pub fn cycle(&self) -> ColorType {
-                match self {
-                        ColorType::TrueColor => ColorType::Ansi256,
-                        ColorType::Ansi256 => ColorType::AnsiGrey,
-                        ColorType::AnsiGrey => ColorType::TrueColor,
+
+impl ColorAttributes {
+        /// luma correct is 0-100, 100 is the highest luma correct
+        pub fn new(luma_correct: u32) -> Self {
+                Self {
+                        luma_correct: (((100 - luma_correct).pow(2) / 100) as f32 * ansi::color::MAP_0_100_DIST) as u32,
                 }
         }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ColorType {
+        Color,
+        Color256,
+        Gray,
+        Gray256,
+}
+
+impl ColorType {
+        pub fn cycle(&self) -> ColorType {
+                match self {
+                        ColorType::Color => ColorType::Color256,
+                        ColorType::Color256 => ColorType::Gray,
+                        ColorType::Gray => ColorType::Gray256,
+                        ColorType::Gray256 => ColorType::Color,
+                }
+        }
+}
+// /// For when and if we decide to add more TUI features
+// pub struct DynamicVars {
+//         pub color_type: ColorType,
+//         pub color_attrs: ColorAttributes,
+//         pub filter: FilterType,
+// }
+
 pub struct Viuwa<'a> {
         pub orig: DynamicImage,
         pub buf: Vec<String>,
-        pub filter: FilterType,
-        pub color: ColorType,
         pub size: (u16, u16),
         pub lock: StdoutLock<'a>,
-        pub quiet: bool,
+        pub args: Args,
 }
 
 impl<'a> Viuwa<'a> {
         /// Create a new viuwa instance
-        pub fn new(orig: DynamicImage, filter: FilterType, color: ColorType, quiet: bool) -> BoxResult<Self> {
+        pub fn new(orig: DynamicImage, args: Args) -> BoxResult<Self> {
                 let mut lock = stdout().lock();
-                let size = lock.size(quiet)?;
-                let buf =
-                        ViuwaImage::new(orig.resize(size.0 as u32, size.1 as u32 * 2, filter), color).to_ansi_windowed(size);
+                let size = lock.size(args.quiet)?;
+                let buf = orig.resize(size.0 as u32, size.1 as u32 * 2, args.filter).into_ansi_windowed(
+                        args.color,
+                        ColorAttributes::new(args.luma_correct),
+                        size,
+                );
                 Ok(Self {
                         orig,
                         buf,
-                        filter,
-                        color,
                         size,
                         lock,
-                        quiet,
+                        args,
                 })
         }
         // seperate spawns because of resize event
@@ -90,42 +113,47 @@ impl<'a> Viuwa<'a> {
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('1') => {
-                                                self.color = ColorType::TrueColor;
+                                                self.args.color = ColorType::Color;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('2') => {
-                                                self.color = ColorType::Ansi256;
+                                                self.args.color = ColorType::Color256;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('3') => {
-                                                self.color = ColorType::AnsiGrey;
+                                                self.args.color = ColorType::Gray;
+                                                self._rebuild_buf();
+                                                self._draw()?;
+                                        }
+                                        KeyCode::Char('4') => {
+                                                self.args.color = ColorType::Gray256;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('!') => {
-                                                self.filter = FilterType::Nearest;
+                                                self.args.filter = FilterType::Nearest;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('@') => {
-                                                self.filter = FilterType::Triangle;
+                                                self.args.filter = FilterType::Triangle;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('#') => {
-                                                self.filter = FilterType::CatmullRom;
+                                                self.args.filter = FilterType::CatmullRom;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('$') => {
-                                                self.filter = FilterType::Gaussian;
+                                                self.args.filter = FilterType::Gaussian;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
                                         KeyCode::Char('%') => {
-                                                self.filter = FilterType::Lanczos3;
+                                                self.args.filter = FilterType::Lanczos3;
                                                 self._rebuild_buf();
                                                 self._draw()?;
                                         }
@@ -189,42 +217,47 @@ impl<'a> Viuwa<'a> {
                                         self._draw()?;
                                 }
                                 b'1' => {
-                                        self.color = ColorType::TrueColor;
+                                        self.args.color = ColorType::Color;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
                                 b'2' => {
-                                        self.color = ColorType::Ansi256;
+                                        self.args.color = ColorType::Color256;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
                                 b'3' => {
-                                        self.color = ColorType::AnsiGrey;
+                                        self.args.color = ColorType::Gray;
+                                        self._rebuild_buf();
+                                        self._draw()?;
+                                }
+                                b'4' => {
+                                        self.args.color = ColorType::Gray256;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
                                 b'!' => {
-                                        self.filter = FilterType::Nearest;
+                                        self.args.filter = FilterType::Nearest;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
                                 b'@' => {
-                                        self.filter = FilterType::Triangle;
+                                        self.args.filter = FilterType::Triangle;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
                                 b'#' => {
-                                        self.filter = FilterType::CatmullRom;
+                                        self.args.filter = FilterType::CatmullRom;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
                                 b'$' => {
-                                        self.filter = FilterType::Gaussian;
+                                        self.args.filter = FilterType::Gaussian;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
                                 b'%' => {
-                                        self.filter = FilterType::Lanczos3;
+                                        self.args.filter = FilterType::Lanczos3;
                                         self._rebuild_buf();
                                         self._draw()?;
                                 }
@@ -269,7 +302,8 @@ impl<'a> Viuwa<'a> {
                                 "[f]: cycle filter",
                                 "[1]: set color to Truecolor",
                                 "[2]: set color to 256",
-                                "[3]: set color to Grey",
+                                "[3]: set color to Gray",
+                                "[4]: set color to 256Gray",
                                 "[Shift + 1]: set filter to nearest",
                                 "[Shift + 2]: set filter to triangle",
                                 "[Shift + 3]: set filter to catmull rom",
@@ -300,15 +334,16 @@ impl<'a> Viuwa<'a> {
                 }
         }
         /// Print ANSI image to stdout without attempting to use alternate screen buffer or other fancy stuff
-        pub fn inline(
-                orig: DynamicImage,
-                filter: FilterType,
-                color: ColorType,
-                size: Option<(u16, u16)>,
-                quiet: bool,
-        ) -> BoxResult<()> {
-                let size = if let Some(s) = size { s } else { stdout().size(quiet)? };
-                let buf = ViuwaImage::new(orig.resize(size.0 as u32, size.1 as u32 * 2, filter), color).to_ansi_inline();
+        pub fn inline(orig: DynamicImage, args: Args) -> BoxResult<()> {
+                let size = match (args.width, args.height) {
+                        (None, None) => stdout().size(args.quiet)?,
+                        (None, Some(h)) => (crate::MAX_COLS, h),
+                        (Some(w), None) => (w, crate::MAX_ROWS),
+                        (Some(w), Some(h)) => (w, h),
+                };
+                let buf = orig
+                        .resize(size.0 as u32, size.1 as u32 * 2, args.filter)
+                        .into_ansi_inline(args.color, ColorAttributes::new(args.luma_correct));
                 let mut lock = stdout().lock();
                 for line in buf.iter() {
                         lock.write_all(line.as_bytes())?;
@@ -341,7 +376,7 @@ impl<'a> Viuwa<'a> {
         }
         /// Cycle through filter types, and rebuild buffer
         fn _cycle_filter(&mut self) {
-                self.filter = match self.filter {
+                self.args.filter = match self.args.filter {
                         FilterType::Nearest => FilterType::Triangle,
                         FilterType::Triangle => FilterType::CatmullRom,
                         FilterType::CatmullRom => FilterType::Gaussian,
@@ -352,15 +387,14 @@ impl<'a> Viuwa<'a> {
         }
         /// Cycle through output formats, and rebuild buffer
         fn _cycle_color(&mut self) {
-                self.color = self.color.cycle();
+                self.args.color = self.args.color.cycle();
                 self._rebuild_buf();
         }
         /// Rebuild the buffer with the current image, filter, and format
         fn _rebuild_buf(&mut self) {
-                self.buf = ViuwaImage::new(
-                        self.orig.resize(self.size.0 as u32, self.size.1 as u32 * 2, self.filter),
-                        self.color,
-                )
-                .to_ansi_windowed(self.size);
+                self.buf = self
+                        .orig
+                        .resize(self.size.0 as u32, self.size.1 as u32 * 2, self.args.filter)
+                        .into_ansi_windowed(self.args.color, ColorAttributes::new(self.args.luma_correct), self.size);
         }
 }
