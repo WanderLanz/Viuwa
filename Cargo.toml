@@ -20,7 +20,3 @@ crossterm = "0.25.*"
 # [features]
 # sixel = []
 # iterm = ["dep:base64"]
-
-[profile.release]
-# lto = true
-debug = true
