@@ -85,6 +85,7 @@ Inlined (CLI) Mode:
 
 ## Known Issues
 
+- On wasm, ANSI raw mode sequences are commonly ignored, so you may need to press enter to send input to the program.
 - On wasm, the wasm runtime may kill the program while it waits for user input. May cause terminal to be left in a weird state and may require restarting the terminal.
 
 ## License
@@ -98,6 +99,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Dependencies
 
-- [![clap crate](https://img.shields.io/static/v1?label=crates.io&message=clap&color=orange&logo=rust&style=flat)](https://crates.io/crates/clap)
-- [![image crate](https://img.shields.io/static/v1?label=crates.io&message=image&color=orange&logo=rust&style=flat)](https://crates.io/crates/image)
-- [![crossterm crate](https://img.shields.io/static/v1?label=crates.io&message=crossterm&color=orange&logo=rust&style=flat)](https://crates.io/crates/crossterm)
+- [![clap crate](https://img.shields.io/static/v1?label=crates.io&message=clap&color=B94700&logo=rust&style=flat)](https://crates.io/crates/clap)
+- [![image crate](https://img.shields.io/static/v1?label=crates.io&message=image&color=B94700&logo=rust&style=flat)](https://crates.io/crates/image)
+- [![crossterm crate](https://img.shields.io/static/v1?label=crates.io&message=crossterm&color=B94700&logo=rust&style=flat)](https://crates.io/crates/crossterm)
+- [![rayon crate](https://img.shields.io/static/v1?label=crates.io&message=rayon&color=B94700&logo=rust&style=flat)](https://crates.io/crates/rayon)

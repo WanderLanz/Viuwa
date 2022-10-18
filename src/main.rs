@@ -1,6 +1,8 @@
 //! A "super simple" cli/tui ansi image viewer.
-//! Uses the `clap` crate for argument parsing.
-//! Uses the `image` crate to load images, and `crossterm` to help display them.
+//! Uses the `clap` crate for argument parsing
+//! and the `image` crate to load images.
+//! On Unix or Windows systems, the `crossterm` crate is used to help manipulate the terminal
+//! and the `rayon` crate is used to parallelize and speed up the conversions.
 //! Uses things from `ansi_colours` crate to help with ansi 256 conversion.
 
 use clap::Parser;
@@ -132,7 +134,7 @@ fn main() -> BoxResult<()> {
                 Viuwa::new(orig, args)?.spawn()?;
                 Ok(())
         } else {
-                Viuwa::inline(orig, args)
+                viuwa::inline(orig, args)
         }
 }
 

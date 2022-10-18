@@ -36,16 +36,22 @@
 //!  - APM = application program mode
 //!  - SGR = select graphic rendition
 #![allow(dead_code)]
-use image::Pixel;
+use image::{DynamicImage, GenericImageView, Pixel};
 
 use crate::BoxResult;
+
 #[cfg(target_family = "wasm")]
 use std::io::{stdin, Read};
+#[cfg(any(windows, unix))]
+use std::sync::{Arc, Mutex};
 use std::{fmt, io};
 
 use self::color::AnsiPixel;
 
-use super::ColorAttributes;
+#[cfg(any(windows, unix))]
+use rayon::prelude::*;
+
+use super::{ColorAttributes, ColorType};
 macro_rules! esc {
         ($( $l:expr ),*) => { concat!('\x1B', $( $l ),*) };
 }
@@ -104,67 +110,212 @@ pub mod attr {
 
 pub mod color;
 
-pub trait TerminalBufferImpl
-where
-        Self: fmt::Write + Sized,
-{
-        // term queuables
-        fn clear_buffer(&mut self) -> fmt::Result { self.write_str(term::CLEAR_BUFFER) }
-        fn clear_screen(&mut self) -> fmt::Result { self.write_str(term::CLEAR_SCREEN) }
-        fn clear_line(&mut self) -> fmt::Result { self.write_str(term::CLEAR_LINE) }
-        fn clear_line_to_end(&mut self) -> fmt::Result { self.write_str(term::CLEAR_LINE_TO_END) }
-        fn clear_line_to_start(&mut self) -> fmt::Result { self.write_str(term::CLEAR_LINE_TO_START) }
-        fn clear_screen_to_end(&mut self) -> fmt::Result { self.write_str(term::CLEAR_SCREEN_TO_END) }
-        fn clear_screen_to_start(&mut self) -> fmt::Result { self.write_str(term::CLEAR_SCREEN_TO_START) }
-        /// !windows
-        fn reset(&mut self) -> fmt::Result { self.write_str(term::RESET) }
-        fn soft_reset(&mut self) -> fmt::Result { self.write_str(term::SOFT_RESET) }
-        fn enter_alt_screen(&mut self) -> fmt::Result { self.write_str(term::ENTER_ALT_SCREEN) }
-        fn exit_alt_screen(&mut self) -> fmt::Result { self.write_str(term::EXIT_ALT_SCREEN) }
-        fn enable_line_wrap(&mut self) -> fmt::Result { self.write_str(term::ENABLE_LINE_WRAP) }
-        fn disable_line_wrap(&mut self) -> fmt::Result { self.write_str(term::DISABLE_LINE_WRAP) }
-        // cursor queuables
-        fn cursor_save(&mut self) -> fmt::Result { self.write_str(term::SAVE_CURSOR) }
-        fn cursor_restore(&mut self) -> fmt::Result { self.write_str(term::RESTORE_CURSOR) }
-        fn cursor_next_line(&mut self) -> fmt::Result { self.write_str(cursor::NEXT_LINE) }
-        fn cursor_prev_line(&mut self) -> fmt::Result { self.write_str(cursor::PREV_LINE) }
-        fn cursor_home(&mut self) -> fmt::Result { self.write_str(cursor::HOME) }
-        fn cursor_to(&mut self, x: u16, y: u16) -> fmt::Result { write!(self, csi!("{};{}H"), y + 1, x + 1) }
-        fn cursor_to_col(&mut self, x: u16) -> fmt::Result { write!(self, csi!("{}G"), x + 1) }
-        fn cursor_up(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}A"), n) }
-        fn cursor_down(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}B"), n) }
-        fn cursor_foward(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}C"), n) }
-        fn cursor_backward(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}D"), n) }
-        fn cursor_next_lines(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}E"), n) }
-        fn cursor_prev_lines(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}F"), n) }
-        // attribute queuables
-        fn attr_reset(&mut self) -> fmt::Result { self.write_str(attr::RESET) }
-        fn fg_24b<'a, P>(&mut self, fg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
+#[derive(Debug, Clone)]
+pub struct AnsiLineBuffer(pub String);
+impl AnsiLineBuffer {
+        pub const RESERVE_SIZE_24B: usize = 39;
+        pub const RESERVE_SIZE_8B: usize = 23;
+        #[inline]
+        pub fn reserve_24b(&mut self, width: u16) { self.0.reserve(width as usize * Self::RESERVE_SIZE_24B); }
+        #[inline]
+        pub fn reserve_8b(&mut self, width: u16) { self.0.reserve(width as usize * Self::RESERVE_SIZE_8B); }
+        pub fn new_24b(width: u16) -> Self { Self(String::with_capacity(width as usize * 39)) }
+        pub fn new_8b(width: u16) -> Self { Self(String::with_capacity(width as usize * 23)) }
+        pub fn fg_24b<'a, P>(&mut self, fg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
         where
                 P: Pixel<Subpixel = u8> + AnsiPixel,
         {
-                fg.fg_24b(self, color_attributes)
+                fg.fg_24b(&mut self.0, color_attributes)
         }
-        fn bg_24b<'a, P>(&mut self, bg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
+        pub fn bg_24b<'a, P>(&mut self, bg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
         where
                 P: Pixel<Subpixel = u8> + AnsiPixel,
         {
-                bg.bg_24b(self, color_attributes)
+                bg.bg_24b(&mut self.0, color_attributes)
         }
-        fn fg_8b<'a, P>(&mut self, fg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
+        pub fn fg_8b<'a, P>(&mut self, fg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
         where
                 P: Pixel<Subpixel = u8> + AnsiPixel,
         {
-                fg.fg_8b(self, color_attributes)
+                fg.fg_8b(&mut self.0, color_attributes)
         }
-        fn bg_8b<'a, P>(&mut self, bg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
+        pub fn bg_8b<'a, P>(&mut self, bg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
         where
                 P: Pixel<Subpixel = u8> + AnsiPixel,
         {
-                bg.bg_8b(self, color_attributes)
+                bg.bg_8b(&mut self.0, color_attributes)
         }
 }
-impl TerminalBufferImpl for String {}
+
+#[derive(Debug, Clone)]
+pub struct AnsiImageBuffer {
+        pub buf: Vec<AnsiLineBuffer>,
+        pub size: (u16, u16),
+}
+impl AnsiImageBuffer {
+        /// Create a new AnsiImageBuffer from a given image and color type and attributes.
+        pub fn from(img: DynamicImage, color_type: &ColorType, color_attrs: &ColorAttributes) -> Self {
+                let (width, height) = img.dimensions();
+                let size = (width as u16, ((height / 2) + (height % 2)) as u16);
+                let mut buf = Vec::with_capacity(size.1 as usize);
+                if color_type.is_24bit() {
+                        buf.resize_with(size.1 as usize, || AnsiLineBuffer::new_24b(size.0));
+                } else {
+                        buf.resize_with(size.1 as usize, || AnsiLineBuffer::new_8b(size.0));
+                }
+                let mut ret = Self { buf, size };
+                ret.replace_image(img, color_type, color_attrs);
+                ret
+        }
+        /// Clear each row and reserve more space for updated size.
+        fn clear_and_reserve(&mut self, color_type: &ColorType) {
+                let n_rows = self.size.1 as usize;
+                let n_rows_uninit = n_rows.saturating_sub(self.buf.len());
+                // reserve more rows only as needed
+                self.buf.reserve(n_rows_uninit);
+                // clear rows and reserve space in each row as needed
+                let buf_iter = self.buf.iter_mut().take(n_rows);
+                if color_type.is_24bit() {
+                        buf_iter.for_each(|s| {
+                                s.0.clear();
+                                s.reserve_24b(self.size.0);
+                        });
+                        // fill allocated but uninitialized rows
+                        self.buf.extend(std::iter::repeat_with(|| AnsiLineBuffer::new_24b(self.size.0)).take(n_rows_uninit));
+                } else {
+                        buf_iter.for_each(|s| {
+                                s.0.clear();
+                                s.reserve_8b(self.size.0);
+                        });
+                        // fill allocated but uninitialized rows
+                        self.buf.extend(std::iter::repeat_with(|| AnsiLineBuffer::new_8b(self.size.0)).take(n_rows_uninit));
+                }
+        }
+        /// Write rows of an image as 24-bit (RGB) ANSI pixels, 2 rows of image pixels per row of ansi
+        pub fn replace_rows_24b<P>(
+                &mut self,
+                #[cfg(any(windows, unix))] rows: ::image::buffer::Rows<P>,
+                #[cfg(target_family = "wasm")] mut rows: ::image::buffer::Rows<P>,
+                color_type: &ColorType,
+                color_attrs: &ColorAttributes,
+        ) where
+                P: Pixel<Subpixel = u8> + AnsiPixel,
+        {
+                let n_rows = self.size.1 as usize;
+                self.clear_and_reserve(color_type);
+                // testing parallelization
+                #[cfg(any(windows, unix))]
+                let r = Arc::new(Mutex::new(rows));
+                #[cfg(any(windows, unix))]
+                self.buf.par_iter_mut().take(n_rows).for_each_init(
+                        || {
+                                let mut r = r.lock().unwrap();
+                                (r.next(), r.next())
+                        },
+                        |pxs, row_buf| match pxs {
+                                (Some(fgs), Some(bgs)) => fgs.zip(bgs).for_each(|(fg, bg)| {
+                                        let _ = row_buf.fg_24b(fg, color_attrs);
+                                        let _ = row_buf.bg_24b(bg, color_attrs);
+                                        row_buf.0.push_str(crate::UPPER_HALF_BLOCK);
+                                }),
+                                (Some(fgs), None) => fgs.for_each(|fg| {
+                                        let _ = row_buf.fg_24b(fg, color_attrs);
+                                        row_buf.0.push_str(crate::UPPER_HALF_BLOCK);
+                                }),
+                                _ => unreachable!("Rows in image does not match height"),
+                        },
+                );
+                #[cfg(target_family = "wasm")]
+                ::std::iter::repeat_with(move || (rows.next(), rows.next()))
+                        .take(n_rows)
+                        .zip(self.buf.iter_mut())
+                        .for_each(|(pxs, row_buf)| match pxs {
+                                (Some(fgs), Some(bgs)) => fgs.zip(bgs).for_each(|(fg, bg)| {
+                                        let _ = row_buf.fg_24b(fg, color_attrs);
+                                        let _ = row_buf.bg_24b(bg, color_attrs);
+                                        row_buf.0.push_str(crate::UPPER_HALF_BLOCK);
+                                }),
+                                (Some(fgs), None) => fgs.for_each(|fg| {
+                                        let _ = row_buf.fg_24b(fg, color_attrs);
+                                        row_buf.0.push_str(crate::UPPER_HALF_BLOCK);
+                                }),
+                                _ => unreachable!("Rows in image does not match height"),
+                        });
+        }
+        /// Write rows of an image as 8-bit (256) ANSI pixels, 2 rows of image pixels per row of ansi
+        pub fn replace_rows_8b<P>(
+                &mut self,
+                #[cfg(any(windows, unix))] rows: ::image::buffer::Rows<P>,
+                #[cfg(target_family = "wasm")] mut rows: ::image::buffer::Rows<P>,
+                color_type: &ColorType,
+                color_attrs: &ColorAttributes,
+        ) where
+                P: Pixel<Subpixel = u8> + AnsiPixel,
+        {
+                let n_rows = self.size.1 as usize;
+                self.clear_and_reserve(color_type);
+                // testing parallelization
+                #[cfg(any(windows, unix))]
+                let r = Arc::new(Mutex::new(rows));
+                #[cfg(any(windows, unix))]
+                self.buf.par_iter_mut().take(n_rows).for_each_init(
+                        || {
+                                let mut r = r.lock().unwrap();
+                                (r.next(), r.next())
+                        },
+                        |pxs, row_buf| match pxs {
+                                (Some(fgs), Some(bgs)) => fgs.zip(bgs).for_each(|(fg, bg)| {
+                                        let _ = row_buf.fg_8b(fg, color_attrs);
+                                        let _ = row_buf.bg_8b(bg, color_attrs);
+                                        row_buf.0.push_str(crate::UPPER_HALF_BLOCK);
+                                }),
+                                (Some(fgs), None) => fgs.for_each(|fg| {
+                                        let _ = row_buf.fg_8b(fg, color_attrs);
+                                        row_buf.0.push_str(crate::UPPER_HALF_BLOCK);
+                                }),
+                                _ => unreachable!("Rows in image does not match height"),
+                        },
+                );
+                #[cfg(target_family = "wasm")]
+                ::std::iter::repeat_with(move || (rows.next(), rows.next()))
+                        .take(n_rows)
+                        .zip(self.buf.iter_mut())
+                        .for_each(|(pxs, row_buf)| match pxs {
+                                (Some(fgs), Some(bgs)) => fgs.zip(bgs).for_each(|(fg, bg)| {
+                                        let _ = row_buf.fg_8b(fg, color_attrs);
+                                        let _ = row_buf.bg_8b(bg, color_attrs);
+                                        row_buf.0.push_str(crate::UPPER_HALF_BLOCK);
+                                }),
+                                (Some(fgs), None) => fgs.for_each(|fg| {
+                                        let _ = row_buf.fg_8b(fg, color_attrs);
+                                        row_buf.0.push_str(crate::UPPER_HALF_BLOCK);
+                                }),
+                                _ => unreachable!("Rows in image does not match height"),
+                        })
+        }
+        /// Replace image in buffer with new image, does NOT resize image.
+        pub fn replace_image(&mut self, img: DynamicImage, color_type: &ColorType, color_attrs: &ColorAttributes) {
+                let (width, height) = img.dimensions();
+                self.size = (width as u16, ((height / 2) + (height % 2)) as u16);
+                if img.color().has_color() && color_type.is_color() {
+                        let img = img.into_rgb8();
+                        let rows = img.rows();
+                        if color_type.is_24bit() {
+                                self.replace_rows_24b(rows, color_type, color_attrs);
+                        } else {
+                                self.replace_rows_8b(rows, color_type, color_attrs);
+                        }
+                } else {
+                        let img = img.into_luma8();
+                        let rows = img.rows();
+                        if color_type.is_24bit() {
+                                self.replace_rows_24b(rows, color_type, color_attrs);
+                        } else {
+                                self.replace_rows_8b(rows, color_type, color_attrs);
+                        }
+                };
+        }
+}
 
 /// Add terminal ANSI writes to a impl Write
 pub trait TerminalImpl
@@ -225,16 +376,9 @@ where
                         eprintln!("Requesting terminal size report, please press enter when a report appears (e.g. \"^[[40;132R\")");
                         eprintln!("If no report appears, then you may need to set --width and/or --height with --inline.");
                 }
-                self.write_all(
-                        [
-                                term::SAVE_CURSOR,
-                                &cursor::to(Coord::MAX.x, Coord::MAX.y),
-                                term::REPORT_CURSOR_POSITION,
-                                term::RESTORE_CURSOR,
-                        ]
-                        .concat()
-                        .as_bytes(),
-                )?;
+                self.cursor_save()?;
+                self.cursor_to(Coord::MAX.x, Coord::MAX.y)?;
+                self.write_all([term::REPORT_CURSOR_POSITION, term::RESTORE_CURSOR].concat().as_bytes())?;
                 self.flush()?;
                 let mut buf = [0; 1];
                 let mut s = Vec::<u8>::with_capacity(10);
@@ -276,6 +420,7 @@ where
         fn cursor_backward(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}D"), n) }
         fn cursor_next_lines(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}E"), n) }
         fn cursor_prev_lines(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}F"), n) }
+        fn attr_reset(&mut self) -> io::Result<()> { self.write_all(attr::RESET.as_bytes()) }
 }
 impl<'a> TerminalImpl for io::StdoutLock<'a> {}
 impl TerminalImpl for io::Stdout {}
@@ -314,14 +459,6 @@ pub mod cursor {
         pub const HOME: &str = csi!("H");
         pub const NEXT_LINE: &str = csi!("1E");
         pub const PREV_LINE: &str = csi!("1F");
-        pub fn to(x: u16, y: u16) -> String { format!(csi!("{};{}H"), y + 1, x + 1) }
-        pub fn to_col(x: u16) -> String { format!(csi!("{}G"), x) }
-        pub fn up(n: u16) -> String { format!(csi!("{}A"), n) }
-        pub fn down(n: u16) -> String { format!(csi!("{}B"), n) }
-        pub fn foward(n: u16) -> String { format!(csi!("{}C"), n) }
-        pub fn backward(n: u16) -> String { format!(csi!("{}D"), n) }
-        pub fn next_line(n: u16) -> String { format!(csi!("{}E"), n) }
-        pub fn prev_line(n: u16) -> String { format!(csi!("{}F"), n) }
 }
 
 // xterm reports

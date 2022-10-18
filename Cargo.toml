@@ -1,6 +1,6 @@
 [package]
 name = "viuwa"
-version = "0.0.44"
+version = "0.0.45"
 edition = "2021"
 authors = ["Lance Warden"]
 description = "Yet another \"super simple\" cli/tui ANSI image viewer, targeting compatibility with wasm32-wasi."
@@ -16,7 +16,12 @@ image = "0.24.*"
 
 [target.'cfg(any(unix,windows))'.dependencies]
 crossterm = "0.25.*"
+rayon = "1.5.*"
 
 # [features]
 # sixel = []
 # iterm = ["dep:base64"]
+
+[profile.release]
+lto = true
+codegen-units = 1

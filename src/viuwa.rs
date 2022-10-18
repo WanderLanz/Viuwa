@@ -1,12 +1,14 @@
 use crate::{Args, BoxResult};
-pub mod ansi;
-mod viuwa_image;
 
-use std::io::{self, stdin, stdout, Read, StdoutLock, Write};
+use std::io::{self, stdout, StdoutLock, Write};
+#[cfg(target_family = "wasm")]
+use std::io::{stdin, Read};
 
 use image::{imageops::FilterType, DynamicImage};
 
-use self::{ansi::TerminalImpl, viuwa_image::AnsiImage};
+pub mod ansi;
+
+use ansi::{AnsiImageBuffer, TerminalImpl};
 
 /// Wrapper around possibly user-controlled color attributes
 #[derive(Debug, Clone, Copy)]
@@ -42,6 +44,24 @@ impl ColorType {
                         ColorType::Gray256 => ColorType::Color,
                 }
         }
+        pub fn is_color(&self) -> bool {
+                match self {
+                        ColorType::Color | ColorType::Color256 => true,
+                        ColorType::Gray | ColorType::Gray256 => false,
+                }
+        }
+        // pub fn is_8bit(&self) -> bool {
+        //         match self {
+        //                 ColorType::Color256 | ColorType::Gray256 => true,
+        //                 ColorType::Color | ColorType::Gray => false,
+        //         }
+        // }
+        pub fn is_24bit(&self) -> bool {
+                match self {
+                        ColorType::Color | ColorType::Gray => true,
+                        ColorType::Color256 | ColorType::Gray256 => false,
+                }
+        }
 }
 // /// For when and if we decide to add more TUI features and want to abstract away the cli args
 // pub struct DynamicVars {
@@ -52,7 +72,7 @@ impl ColorType {
 
 pub struct Viuwa<'a> {
         pub orig: DynamicImage,
-        pub buf: Vec<String>,
+        pub buf: AnsiImageBuffer,
         pub size: (u16, u16),
         pub lock: StdoutLock<'a>,
         pub args: Args,
@@ -63,10 +83,10 @@ impl<'a> Viuwa<'a> {
         pub fn new(orig: DynamicImage, args: Args) -> BoxResult<Self> {
                 let mut lock = stdout().lock();
                 let size = lock.size(args.quiet)?;
-                let buf = orig.resize(size.0 as u32, size.1 as u32 * 2, args.filter).into_ansi_windowed(
-                        args.color,
-                        ColorAttributes::new(args.luma_correct),
-                        size,
+                let buf = AnsiImageBuffer::from(
+                        orig.resize(size.0 as u32, size.1 as u32 * 2, args.filter),
+                        &args.color,
+                        &ColorAttributes::new(args.luma_correct),
                 );
                 Ok(Self {
                         orig,
@@ -281,18 +301,21 @@ impl<'a> Viuwa<'a> {
         /// Write the buffer to the terminal, and move the cursor to the bottom left
         fn _draw(&mut self) -> BoxResult<()> {
                 self.lock.clear_screen()?;
-                // let mut print_queue = Arc::new(Mutex::new(VecDeque::with_capacity(self.px_size.1 as usize)));
-                for line in self.buf.iter() {
-                        self.lock.write_all(line.as_bytes())?;
+                let ox = (self.size.0 - self.buf.size.0) / 2;
+                let oy = (self.size.1 - self.buf.size.1) / 2;
+                for (y, line) in self.buf.buf.iter().enumerate() {
+                        self.lock.cursor_to(ox, oy + y as u16)?;
+                        self.lock.write_all(line.0.as_bytes())?;
+                        self.lock.attr_reset()?;
                 }
-                self.lock.write_all(ansi::cursor::to(0, self.size.1).as_bytes())?;
+                self.lock.cursor_to(0, self.size.1)?;
                 self.lock.flush()?;
                 Ok(())
         }
         /// clear screen, print help, and quit 'q'
         fn _help(&mut self) -> BoxResult<()> {
-                self.lock
-                        .write_all([ansi::term::CLEAR_SCREEN, ansi::cursor::HOME].concat().as_bytes())?;
+                self.lock.clear_screen()?;
+                self.lock.cursor_home()?;
                 self._write_centerx(0, "Viuwa help:")?;
                 self._write_centerxy_align_all(
                         &[
@@ -313,18 +336,9 @@ impl<'a> Viuwa<'a> {
                         ]
                         .to_vec(),
                 )?;
-                self.lock.write_all(ansi::cursor::to(0, self.size.1).as_bytes())?;
+                self.lock.cursor_to(0, self.size.1)?;
                 self.lock.flush()?;
-                let mut buf = [0; 1];
-                let mut stdin = stdin().lock();
-                loop {
-                        stdin.read_exact(&mut buf)?;
-                        match buf[0] {
-                                b'q' => break,
-                                _ => (),
-                        }
-                }
-                Ok(())
+                wait_for_quit()
         }
         /// handle resize event
         fn _handle_resize(&mut self, w: u16, h: u16) {
@@ -334,31 +348,10 @@ impl<'a> Viuwa<'a> {
                         self._rebuild_buf();
                 }
         }
-        /// Print ANSI image to stdout without attempting to use alternate screen buffer or other fancy stuff
-        pub fn inline(orig: DynamicImage, args: Args) -> BoxResult<()> {
-                let size = match (args.width, args.height) {
-                        (None, None) => stdout().size(args.quiet)?,
-                        (None, Some(h)) => (crate::MAX_COLS, h),
-                        (Some(w), None) => (w, crate::MAX_ROWS),
-                        (Some(w), Some(h)) => (w, h),
-                };
-                let buf = orig
-                        .resize(size.0 as u32, size.1 as u32 * 2, args.filter)
-                        .into_ansi_inline(args.color, ColorAttributes::new(args.luma_correct));
-                let mut lock = stdout().lock();
-                for line in buf.iter() {
-                        lock.write_all(line.as_bytes())?;
-                }
-                lock.flush()?;
-                Ok(())
-        }
         /// print a string centered on the x axis
         fn _write_centerx(&mut self, y: u16, s: &str) -> io::Result<()> {
-                self.lock.write_all(
-                        [&ansi::cursor::to((self.size.0 - s.len() as u16) / 2, y), s]
-                                .concat()
-                                .as_bytes(),
-                )?;
+                self.lock.cursor_to((self.size.0 - s.len() as u16) / 2, y)?;
+                self.lock.write_all(s.as_bytes())?;
                 Ok(())
         }
         /// print strings centered and aligned on the x axis and y axis
@@ -367,8 +360,8 @@ impl<'a> Viuwa<'a> {
                         let ox = (self.size.0 - max as u16) / 2;
                         let oy = (self.size.1 - s.len() as u16) / 2;
                         for (i, line) in s.into_iter().enumerate() {
-                                self.lock
-                                        .write_all([&ansi::cursor::to(ox, oy + i as u16), *line].concat().as_bytes())?;
+                                self.lock.cursor_to(ox, oy + i as u16)?;
+                                self.lock.write_all(line.as_bytes())?;
                         }
                         Ok(())
                 } else {
@@ -393,9 +386,60 @@ impl<'a> Viuwa<'a> {
         }
         /// Rebuild the buffer with the current image, filter, and format
         fn _rebuild_buf(&mut self) {
-                self.buf = self
-                        .orig
-                        .resize(self.size.0 as u32, self.size.1 as u32 * 2, self.args.filter)
-                        .into_ansi_windowed(self.args.color, ColorAttributes::new(self.args.luma_correct), self.size);
+                self.buf.replace_image(
+                        self.orig.resize(self.size.0 as u32, self.size.1 as u32 * 2, self.args.filter),
+                        &self.args.color,
+                        &ColorAttributes::new(self.args.luma_correct),
+                );
         }
+}
+
+#[cfg(target_family = "wasm")]
+fn wait_for_quit() -> BoxResult<()> {
+        let mut buf = [0; 1];
+        let mut stdin = stdin().lock();
+        loop {
+                stdin.read_exact(&mut buf)?;
+                match buf[0] {
+                        b'q' => break,
+                        _ => (),
+                }
+        }
+        Ok(())
+}
+#[cfg(any(windows, unix))]
+fn wait_for_quit() -> BoxResult<()> {
+        loop {
+                match crossterm::event::read()? {
+                        crossterm::event::Event::Key(crossterm::event::KeyEvent {
+                                code: crossterm::event::KeyCode::Char('q') | crossterm::event::KeyCode::Esc,
+                                ..
+                        }) => break,
+                        _ => continue,
+                }
+        }
+        Ok(())
+}
+
+/// Print ANSI image to stdout without attempting to use alternate screen buffer or other fancy stuff
+pub fn inline(orig: DynamicImage, args: Args) -> BoxResult<()> {
+        let size = match (args.width, args.height) {
+                (None, None) => stdout().size(args.quiet)?,
+                (None, Some(h)) => (crate::MAX_COLS, h),
+                (Some(w), None) => (w, crate::MAX_ROWS),
+                (Some(w), Some(h)) => (w, h),
+        };
+        let buf = AnsiImageBuffer::from(
+                orig.resize(size.0 as u32, size.1 as u32 * 2, args.filter),
+                &args.color,
+                &ColorAttributes::new(args.luma_correct),
+        );
+        let mut lock = stdout().lock();
+        for line in buf.buf.iter() {
+                lock.write_all(line.0.as_bytes())?;
+                lock.attr_reset()?;
+                lock.write_all(b"\n")?;
+        }
+        lock.flush()?;
+        Ok(())
 }
