@@ -223,7 +223,7 @@ where
                 // otherwise, we can try to get the cursor position, but this is not guaranteed to work and user might have to press enter
                 if !quiet {
                         eprintln!("Requesting terminal size report, please press enter when a report appears (e.g. \"^[[40;132R\")");
-                        eprintln!("If no report appears, then you may need to set --size.");
+                        eprintln!("If no report appears, then you may need to set --width and/or --height with --inline.");
                 }
                 self.write_all(
                         [
