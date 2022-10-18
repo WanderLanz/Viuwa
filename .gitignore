@@ -1,5 +1,7 @@
 /target
-/*.ignore.*
-/*.gif
-/*.png
+/*.ignore*
+/*.gif*
+/*.png*
+/*.svg*
+/*.data*
 /.vscode

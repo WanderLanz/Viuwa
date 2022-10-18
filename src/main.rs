@@ -2,8 +2,8 @@
 //! Uses the `clap` crate for argument parsing.
 //! Uses the `image` crate to load images, and `crossterm` to help display them.
 //! Uses things from `ansi_colours` crate to help with ansi 256 conversion.
+
 use clap::Parser;
-//TODO: make contrast a flag, and/or add saturation flag
 
 use image::{self, imageops::FilterType};
 

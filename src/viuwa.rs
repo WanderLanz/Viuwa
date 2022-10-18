@@ -16,7 +16,8 @@ pub struct ColorAttributes {
 }
 
 impl ColorAttributes {
-        /// luma correct is 0-100, 100 is the highest luma correct
+        /// luma correct is 0..=100, 100 is the highest luma correct
+        // distance threshold = (MAX_COLOR_DISTANCE / 100) * ((100 - luma_correct)^2 / 100)
         pub fn new(luma_correct: u32) -> Self {
                 Self {
                         luma_correct: (((100 - luma_correct).pow(2) / 100) as f32 * ansi::color::MAP_0_100_DIST) as u32,
@@ -42,7 +43,7 @@ impl ColorType {
                 }
         }
 }
-// /// For when and if we decide to add more TUI features
+// /// For when and if we decide to add more TUI features and want to abstract away the cli args
 // pub struct DynamicVars {
 //         pub color_type: ColorType,
 //         pub color_attrs: ColorAttributes,

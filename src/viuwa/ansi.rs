@@ -36,10 +36,16 @@
 //!  - APM = application program mode
 //!  - SGR = select graphic rendition
 #![allow(dead_code)]
+use image::Pixel;
+
 use crate::BoxResult;
-use std::io::{self, Write};
 #[cfg(target_family = "wasm")]
 use std::io::{stdin, Read};
+use std::{fmt, io};
+
+use self::color::AnsiPixel;
+
+use super::ColorAttributes;
 macro_rules! esc {
         ($( $l:expr ),*) => { concat!('\x1B', $( $l ),*) };
 }
@@ -98,10 +104,72 @@ pub mod attr {
 
 pub mod color;
 
+pub trait TerminalBufferImpl
+where
+        Self: fmt::Write + Sized,
+{
+        // term queuables
+        fn clear_buffer(&mut self) -> fmt::Result { self.write_str(term::CLEAR_BUFFER) }
+        fn clear_screen(&mut self) -> fmt::Result { self.write_str(term::CLEAR_SCREEN) }
+        fn clear_line(&mut self) -> fmt::Result { self.write_str(term::CLEAR_LINE) }
+        fn clear_line_to_end(&mut self) -> fmt::Result { self.write_str(term::CLEAR_LINE_TO_END) }
+        fn clear_line_to_start(&mut self) -> fmt::Result { self.write_str(term::CLEAR_LINE_TO_START) }
+        fn clear_screen_to_end(&mut self) -> fmt::Result { self.write_str(term::CLEAR_SCREEN_TO_END) }
+        fn clear_screen_to_start(&mut self) -> fmt::Result { self.write_str(term::CLEAR_SCREEN_TO_START) }
+        /// !windows
+        fn reset(&mut self) -> fmt::Result { self.write_str(term::RESET) }
+        fn soft_reset(&mut self) -> fmt::Result { self.write_str(term::SOFT_RESET) }
+        fn enter_alt_screen(&mut self) -> fmt::Result { self.write_str(term::ENTER_ALT_SCREEN) }
+        fn exit_alt_screen(&mut self) -> fmt::Result { self.write_str(term::EXIT_ALT_SCREEN) }
+        fn enable_line_wrap(&mut self) -> fmt::Result { self.write_str(term::ENABLE_LINE_WRAP) }
+        fn disable_line_wrap(&mut self) -> fmt::Result { self.write_str(term::DISABLE_LINE_WRAP) }
+        // cursor queuables
+        fn cursor_save(&mut self) -> fmt::Result { self.write_str(term::SAVE_CURSOR) }
+        fn cursor_restore(&mut self) -> fmt::Result { self.write_str(term::RESTORE_CURSOR) }
+        fn cursor_next_line(&mut self) -> fmt::Result { self.write_str(cursor::NEXT_LINE) }
+        fn cursor_prev_line(&mut self) -> fmt::Result { self.write_str(cursor::PREV_LINE) }
+        fn cursor_home(&mut self) -> fmt::Result { self.write_str(cursor::HOME) }
+        fn cursor_to(&mut self, x: u16, y: u16) -> fmt::Result { write!(self, csi!("{};{}H"), y + 1, x + 1) }
+        fn cursor_to_col(&mut self, x: u16) -> fmt::Result { write!(self, csi!("{}G"), x + 1) }
+        fn cursor_up(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}A"), n) }
+        fn cursor_down(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}B"), n) }
+        fn cursor_foward(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}C"), n) }
+        fn cursor_backward(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}D"), n) }
+        fn cursor_next_lines(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}E"), n) }
+        fn cursor_prev_lines(&mut self, n: u16) -> fmt::Result { write!(self, csi!("{}F"), n) }
+        // attribute queuables
+        fn attr_reset(&mut self) -> fmt::Result { self.write_str(attr::RESET) }
+        fn fg_24b<'a, P>(&mut self, fg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
+        where
+                P: Pixel<Subpixel = u8> + AnsiPixel,
+        {
+                fg.fg_24b(self, color_attributes)
+        }
+        fn bg_24b<'a, P>(&mut self, bg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
+        where
+                P: Pixel<Subpixel = u8> + AnsiPixel,
+        {
+                bg.bg_24b(self, color_attributes)
+        }
+        fn fg_8b<'a, P>(&mut self, fg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
+        where
+                P: Pixel<Subpixel = u8> + AnsiPixel,
+        {
+                fg.fg_8b(self, color_attributes)
+        }
+        fn bg_8b<'a, P>(&mut self, bg: &'a P, color_attributes: &ColorAttributes) -> fmt::Result
+        where
+                P: Pixel<Subpixel = u8> + AnsiPixel,
+        {
+                bg.bg_8b(self, color_attributes)
+        }
+}
+impl TerminalBufferImpl for String {}
+
 /// Add terminal ANSI writes to a impl Write
 pub trait TerminalImpl
 where
-        Self: Write + Sized,
+        Self: io::Write + Sized,
 {
         fn clear_buffer(&mut self) -> io::Result<()> { self.write_all(term::CLEAR_BUFFER.as_bytes()) }
         fn clear_screen(&mut self) -> io::Result<()> { self.write_all(term::CLEAR_SCREEN.as_bytes()) }
@@ -192,33 +260,25 @@ where
                 }
                 Ok((crate::DEFAULT_COLS, crate::DEFAULT_ROWS))
         }
-        fn cursor(&mut self) -> Cursor<Self> { Cursor::new(self) }
         fn cursor_hide(&mut self) -> io::Result<()> { self.write_all(term::HIDE_CURSOR.as_bytes()) }
         fn cursor_show(&mut self) -> io::Result<()> { self.write_all(term::SHOW_CURSOR.as_bytes()) }
         fn cursor_save(&mut self) -> io::Result<()> { self.write_all(term::SAVE_CURSOR.as_bytes()) }
         fn cursor_restore(&mut self) -> io::Result<()> { self.write_all(term::RESTORE_CURSOR.as_bytes()) }
         fn cursor_report_position(&mut self) -> io::Result<()> { self.write_all(term::REPORT_CURSOR_POSITION.as_bytes()) }
-
-        // fn start_sixel(&mut self) -> io::Result<()> { self.write_all(term::START_SIXEL.as_bytes()) }
+        fn cursor_next_line(&mut self) -> io::Result<()> { self.write_all(cursor::NEXT_LINE.as_bytes()) }
+        fn cursor_prev_line(&mut self) -> io::Result<()> { self.write_all(cursor::PREV_LINE.as_bytes()) }
+        fn cursor_home(&mut self) -> io::Result<()> { self.write_all(cursor::HOME.as_bytes()) }
+        fn cursor_to(&mut self, x: u16, y: u16) -> io::Result<()> { write!(self, csi!("{};{}H"), y + 1, x + 1) }
+        fn cursor_to_col(&mut self, x: u16) -> io::Result<()> { write!(self, csi!("{}G"), x + 1) }
+        fn cursor_up(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}A"), n) }
+        fn cursor_down(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}B"), n) }
+        fn cursor_foward(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}C"), n) }
+        fn cursor_backward(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}D"), n) }
+        fn cursor_next_lines(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}E"), n) }
+        fn cursor_prev_lines(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}F"), n) }
 }
 impl<'a> TerminalImpl for io::StdoutLock<'a> {}
 impl TerminalImpl for io::Stdout {}
-
-pub struct Cursor<'a, T: Write>(&'a mut T);
-impl<'a, T: Write> Cursor<'a, T> {
-        pub fn new(term: &'a mut T) -> Self { Self(term) }
-        pub fn next_line(&mut self) -> io::Result<()> { self.0.write_all(cursor::NEXT_LINE.as_bytes()) }
-        pub fn prev_line(&mut self) -> io::Result<()> { self.0.write_all(cursor::PREV_LINE.as_bytes()) }
-        pub fn home(&mut self) -> io::Result<()> { self.0.write_all(cursor::HOME.as_bytes()) }
-        pub fn to(&mut self, x: u16, y: u16) -> io::Result<()> { self.0.write_all(cursor::to(x, y).as_bytes()) }
-        pub fn to_col(&mut self, x: u16) -> io::Result<()> { self.0.write_all(cursor::to_col(x).as_bytes()) }
-        pub fn up(&mut self, n: u16) -> io::Result<()> { self.0.write_all(cursor::up(n).as_bytes()) }
-        pub fn down(&mut self, n: u16) -> io::Result<()> { self.0.write_all(cursor::down(n).as_bytes()) }
-        pub fn foward(&mut self, n: u16) -> io::Result<()> { self.0.write_all(cursor::foward(n).as_bytes()) }
-        pub fn backward(&mut self, n: u16) -> io::Result<()> { self.0.write_all(cursor::backward(n).as_bytes()) }
-        pub fn next_lines(&mut self, n: u16) -> io::Result<()> { self.0.write_all(cursor::next_line(n).as_bytes()) }
-        pub fn prev_lines(&mut self, n: u16) -> io::Result<()> { self.0.write_all(cursor::prev_line(n).as_bytes()) }
-}
 
 pub mod term {
         pub const CLEAR_BUFFER: &str = csi!("3J");

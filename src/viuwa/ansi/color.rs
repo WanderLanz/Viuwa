@@ -1,13 +1,24 @@
+use std::fmt;
+
 use image::{Luma, Pixel, Rgb};
 
 use crate::viuwa::ColorAttributes;
-
-pub fn set_fg24_gray(c: u8) -> String { format!(csi!("38;2;{};{};{}m"), c, c, c) }
-pub fn set_bg24_gray(c: u8) -> String { format!(csi!("48;2;{};{};{}m"), c, c, c) }
-pub fn set_fg24_color(c: &[u8; 3]) -> String { format!(csi!("38;2;{};{};{}m"), c[0], c[1], c[2]) }
-pub fn set_bg24_color(c: &[u8; 3]) -> String { format!(csi!("48;2;{};{};{}m"), c[0], c[1], c[2]) }
-pub fn set_fg8(c: u8) -> String { format!(csi!("38;5;{}m"), c) }
-pub fn set_bg8(c: u8) -> String { format!(csi!("48;5;{}m"), c) }
+macro_rules! set_fg {
+        (RGB) => {
+                csi!("38;2;{};{};{}m")
+        };
+        (256) => {
+                csi!("38;5;{}m")
+        };
+}
+macro_rules! set_bg {
+        (RGB) => {
+                csi!("48;2;{};{};{}m")
+        };
+        (256) => {
+                csi!("48;5;{}m")
+        };
+}
 
 /// Get the closest 8-bit color to the given 24-bit grayscale value.
 #[inline]
@@ -29,7 +40,7 @@ pub fn rgb_to_256(c: &[u8; 3], ca: &ColorAttributes) -> u8 {
 pub fn luma(c: &[u8; 3]) -> u8 { (((c[0] as u32 * 2126) + (c[1] as u32 * 7152) + (c[2] as u32 * 722)) / 10000) as u8 }
 
 /// Get the distance between two 24-bit colors.
-/// 0 - 584970
+/// 0..=584970
 pub const fn dist(a: &[u8; 3], b: &[u8; 3]) -> u32 {
         let r_ = (a[0] as u32 + b[0] as u32) / 2;
         let r = (a[0] as u32).abs_diff(b[0] as u32).pow(2);
@@ -145,22 +156,48 @@ pub static GRAY_TO_256: [u8; 256] = [
 ];
 
 pub trait AnsiPixel: Pixel<Subpixel = u8> {
-        fn fg_24b<'f>(&'f self, ca: &ColorAttributes) -> String;
-        fn bg_24b<'f>(&'f self, ca: &ColorAttributes) -> String;
-        fn fg_8b<'f>(&'f self, ca: &ColorAttributes) -> String;
-        fn bg_8b<'f>(&'f self, ca: &ColorAttributes) -> String;
+        fn fg_24b<W: fmt::Write>(&self, writer: &mut W, color_attrs: &ColorAttributes) -> fmt::Result;
+        fn bg_24b<W: fmt::Write>(&self, writer: &mut W, color_attrs: &ColorAttributes) -> fmt::Result;
+        fn fg_8b<W: fmt::Write>(&self, writer: &mut W, color_attrs: &ColorAttributes) -> fmt::Result;
+        fn bg_8b<W: fmt::Write>(&self, writer: &mut W, color_attrs: &ColorAttributes) -> fmt::Result;
 }
 
 impl AnsiPixel for Rgb<u8> {
-        fn fg_24b<'f>(&'f self, _: &ColorAttributes) -> String { set_fg24_color(&self.0) }
-        fn bg_24b<'f>(&'f self, _: &ColorAttributes) -> String { set_bg24_color(&self.0) }
-        fn fg_8b<'f>(&'f self, ca: &ColorAttributes) -> String { set_fg8(rgb_to_256(&self.0, ca)) }
-        fn bg_8b<'f>(&'f self, ca: &ColorAttributes) -> String { set_bg8(rgb_to_256(&self.0, ca)) }
+        #[inline]
+        fn fg_24b<W: fmt::Write>(&self, writer: &mut W, _: &ColorAttributes) -> fmt::Result {
+                write!(writer, set_fg!(RGB), self.0[0], self.0[1], self.0[2])
+        }
+        #[inline]
+        fn bg_24b<W: fmt::Write>(&self, writer: &mut W, _: &ColorAttributes) -> fmt::Result {
+                write!(writer, set_bg!(RGB), self.0[0], self.0[1], self.0[2])
+        }
+        #[inline]
+        fn fg_8b<W: fmt::Write>(&self, writer: &mut W, color_attrs: &ColorAttributes) -> fmt::Result {
+                write!(writer, set_fg!(256), rgb_to_256(&self.0, color_attrs))
+        }
+        #[inline]
+        fn bg_8b<W: fmt::Write>(&self, writer: &mut W, color_attrs: &ColorAttributes) -> fmt::Result {
+                write!(writer, set_bg!(256), rgb_to_256(&self.0, color_attrs))
+        }
 }
 
 impl AnsiPixel for Luma<u8> {
-        fn fg_24b<'f>(&'f self, _: &ColorAttributes) -> String { set_fg24_gray(self.0[0]) }
-        fn bg_24b<'f>(&'f self, _: &ColorAttributes) -> String { set_bg24_gray(self.0[0]) }
-        fn fg_8b<'f>(&'f self, _: &ColorAttributes) -> String { set_fg8(gray_to_256(self.0[0])) }
-        fn bg_8b<'f>(&'f self, _: &ColorAttributes) -> String { set_bg8(gray_to_256(self.0[0])) }
+        #[inline]
+        fn fg_24b<W: fmt::Write>(&self, writer: &mut W, _: &ColorAttributes) -> fmt::Result {
+                let c = self.0[0];
+                write!(writer, set_fg!(RGB), c, c, c)
+        }
+        #[inline]
+        fn bg_24b<W: fmt::Write>(&self, writer: &mut W, _: &ColorAttributes) -> fmt::Result {
+                let c = self.0[0];
+                write!(writer, set_bg!(RGB), c, c, c)
+        }
+        #[inline]
+        fn fg_8b<W: fmt::Write>(&self, writer: &mut W, _: &ColorAttributes) -> fmt::Result {
+                write!(writer, set_fg!(256), gray_to_256(self.0[0]))
+        }
+        #[inline]
+        fn bg_8b<W: fmt::Write>(&self, writer: &mut W, _: &ColorAttributes) -> fmt::Result {
+                write!(writer, set_bg!(256), gray_to_256(self.0[0]))
+        }
 }

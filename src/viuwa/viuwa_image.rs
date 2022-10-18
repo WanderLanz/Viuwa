@@ -5,7 +5,7 @@ use image::{buffer::Rows, DynamicImage, GrayImage, Pixel, RgbImage};
 use crate::UPPER_HALF_BLOCK;
 
 use super::{
-        ansi::{self, color::AnsiPixel, cursor},
+        ansi::{self, color::AnsiPixel, cursor, TerminalBufferImpl},
         ColorAttributes, ColorType,
 };
 
@@ -86,24 +86,24 @@ impl ViuwaImage {
                 match self.buf {
                         // image are already set to Rgb or Luma based on the format
                         ViuwaImageBuffer::Rgb(ref img) => {
-                                let w = img.width() as u16;
+                                let width = img.width() as u16;
                                 let rows = img.rows();
                                 match self.color_type {
-                                        ColorType::Color => rows_to_ansi_24b(w, &self.color_attrs, rows),
-                                        ColorType::Color256 => rows_to_ansi_8b(w, &self.color_attrs, rows),
+                                        ColorType::Color => rows_to_ansi_24b(width, &self.color_attrs, rows),
+                                        ColorType::Color256 => rows_to_ansi_8b(width, &self.color_attrs, rows),
                                         _ => unreachable!(
                                         "ViuwaImageBuffer::Rgb with gray ColorType, one of the developers did an oopsie!"
                                 ),
                                 }
                         }
                         ViuwaImageBuffer::Gray(ref img) => {
-                                let w = img.width() as u16;
+                                let width = img.width() as u16;
                                 let rows = img.rows();
                                 match self.color_type {
                                         ColorType::Color256 | ColorType::Gray256 => {
-                                                rows_to_ansi_8b(w, &self.color_attrs, rows)
+                                                rows_to_ansi_8b(width, &self.color_attrs, rows)
                                         }
-                                        _ => rows_to_ansi_24b(w, &self.color_attrs, rows),
+                                        _ => rows_to_ansi_24b(width, &self.color_attrs, rows),
                                 }
                         }
                 }
@@ -149,22 +149,23 @@ impl AnsiImage for DynamicImage {
 }
 
 /// Map rows of an image to 24-bit ANSI pixels and return them as a vector of strings, 2 rows of pixels per row of ansi
-fn rows_to_ansi_24b<P>(w: u16, attrs: &ColorAttributes, mut rows: Rows<P>) -> Vec<String>
+fn rows_to_ansi_24b<P>(width: u16, color_attrs: &ColorAttributes, mut rows: Rows<P>) -> Vec<String>
 where
         P: Pixel<Subpixel = u8> + AnsiPixel,
 {
         iter::repeat_with(move || (rows.next(), rows.next()))
                 .map_while(|pxs| match pxs {
                         (Some(fgs), Some(bgs)) => {
-                                Some(fgs.zip(bgs).fold(String::with_capacity(w as usize * 39), |mut a, (fg, bg)| {
-                                        a.push_str(&fg.fg_24b(attrs));
-                                        a.push_str(&bg.bg_24b(attrs));
-                                        a.push_str(UPPER_HALF_BLOCK);
-                                        a
-                                }))
+                                Some(fgs.zip(bgs)
+                                        .fold(String::with_capacity(width as usize * 39), |mut a, (fg, bg)| {
+                                                let _ = a.fg_24b(fg, color_attrs);
+                                                let _ = a.bg_24b(bg, color_attrs);
+                                                a.push_str(UPPER_HALF_BLOCK);
+                                                a
+                                        }))
                         }
-                        (Some(fgs), None) => Some(fgs.fold(String::with_capacity(w as usize * 20), |mut a, fg| {
-                                a.push_str(&fg.fg_24b(attrs));
+                        (Some(fgs), None) => Some(fgs.fold(String::with_capacity(width as usize * 20), |mut a, fg| {
+                                let _ = a.fg_24b(fg, color_attrs);
                                 a.push_str(UPPER_HALF_BLOCK);
                                 a
                         })),
@@ -173,22 +174,23 @@ where
                 .collect()
 }
 /// Map rows of an image to 8-bit ANSI pixels and return them as a vector of strings, 2 rows of pixels per row of ansi
-fn rows_to_ansi_8b<P>(w: u16, attrs: &ColorAttributes, mut rows: Rows<P>) -> Vec<String>
+fn rows_to_ansi_8b<P>(width: u16, color_attrs: &ColorAttributes, mut rows: Rows<P>) -> Vec<String>
 where
         P: Pixel<Subpixel = u8> + AnsiPixel,
 {
         iter::repeat_with(move || (rows.next(), rows.next()))
                 .map_while(|pxs| match pxs {
                         (Some(fgs), Some(bgs)) => {
-                                Some(fgs.zip(bgs).fold(String::with_capacity(w as usize * 23), |mut a, (fg, bg)| {
-                                        a.push_str(&fg.fg_8b(attrs));
-                                        a.push_str(&bg.bg_8b(attrs));
-                                        a.push_str(UPPER_HALF_BLOCK);
-                                        a
-                                }))
+                                Some(fgs.zip(bgs)
+                                        .fold(String::with_capacity(width as usize * 23), |mut a, (fg, bg)| {
+                                                let _ = a.fg_8b(fg, color_attrs);
+                                                let _ = a.bg_8b(bg, color_attrs);
+                                                a.push_str(UPPER_HALF_BLOCK);
+                                                a
+                                        }))
                         }
-                        (Some(fgs), None) => Some(fgs.fold(String::with_capacity(w as usize * 12), |mut a, fg| {
-                                a.push_str(&fg.fg_8b(attrs));
+                        (Some(fgs), None) => Some(fgs.fold(String::with_capacity(width as usize * 12), |mut a, fg| {
+                                let _ = a.fg_8b(fg, color_attrs);
                                 a.push_str(UPPER_HALF_BLOCK);
                                 a
                         })),
