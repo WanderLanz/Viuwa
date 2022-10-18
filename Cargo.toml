@@ -21,7 +21,3 @@ rayon = "1.5.*"
 # [features]
 # sixel = []
 # iterm = ["dep:base64"]
-
-[profile.release]
-lto = true
-codegen-units = 1
