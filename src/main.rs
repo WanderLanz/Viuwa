@@ -116,7 +116,6 @@ fn main() -> BoxResult<()> {
                 if is_windows() {
                         eprintln!("WARNING: Windows support with wasm is unstable, as it may require Win32 API unavailable in wasi");
                 }
-                eprintln!("Reading image file...");
         }
         // wasi doesn't have universal support for async I/O
         let orig = image::open(&args.image)?;
@@ -124,7 +123,6 @@ fn main() -> BoxResult<()> {
                 if orig.width() > 1920 && orig.height() > 1080 {
                         eprintln!("WARNING: Large images may cause significant performance issues when changing filter type or resizing");
                 }
-                eprintln!("Loading ansi...");
         }
         if !args.inline {
                 #[cfg(target_family = "wasm")]

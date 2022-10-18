@@ -201,7 +201,7 @@ impl<'a> Viuwa<'a> {
                         match buf[0] {
                                 b'q' => break,
                                 b'r' => {
-                                        let size = self.lock.size(self.quiet)?;
+                                        let size = self.lock.size(self.args.quiet)?;
                                         self._handle_resize(size.0, size.1);
                                         self._draw()?;
                                 }
