@@ -1,11 +1,7 @@
 # Viuwa
 
-[![crate](https://img.shields.io/crates/v/viuwa.svg?style=for-the-badge)](https://crates.io/crates/viuwa)
-[![crate all releases](https://img.shields.io/crates/d/viuwa?color=fe7d37&style=for-the-badge)](https://crates.io/crates/viuwa)
-
-[![github](https://img.shields.io/github/v/release/WanderLanz/Viuwa?include_prereleases&label=GITHUB&style=for-the-badge)](https://github.com/WanderLanz/Viuwa)
-[![github all releases](https://img.shields.io/github/downloads/WanderLanz/Viuwa/total?style=for-the-badge)](https://github.com/WanderLanz/Viuwa/releases)
-
+[![crate](https://img.shields.io/crates/v/viuwa.svg?style=for-the-badge)](https://crates.io/crates/viuwa) <!-- [![crate all releases](https://img.shields.io/crates/d/viuwa?color=fe7d37&style=for-the-badge)](https://crates.io/crates/viuwa) -->
+[![github](https://img.shields.io/github/v/release/WanderLanz/Viuwa?include_prereleases&label=GITHUB&style=for-the-badge)](https://github.com/WanderLanz/Viuwa) <!-- [![github all releases](https://img.shields.io/github/downloads/WanderLanz/Viuwa/total?style=for-the-badge)](https://github.com/WanderLanz/Viuwa/releases) -->
 [![license](https://img.shields.io/crates/l/viuwa.svg?style=for-the-badge)](NOTICES.txt)
 
 Viuwa is a simple terminal ANSI image viewer trying to maintain bare-minimum compatibility with the wasm32-wasi target.
