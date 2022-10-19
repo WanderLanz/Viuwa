@@ -86,7 +86,7 @@ Inlined (CLI) Mode:
 ## Known Issues
 
 - On wasm, ANSI raw mode sequences are commonly ignored, so you may need to press enter to send input to the program.
-- On wasm, the wasm runtime may kill the program while it waits for user input. May cause terminal to be left in a weird state and may require restarting the terminal.
+- Some wasm runtimes may kill the program in its windowed/tui mode. May cause terminal to be left in a weird state and may require restarting the terminal if terminal doesn't soft reset itself.
 
 ## License
 
