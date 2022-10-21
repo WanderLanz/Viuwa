@@ -19,13 +19,8 @@ ndarray = { version = "0.15.6", optional = true, features = ["rayon"] }
 [target.'cfg(any(unix,windows))'.dependencies]
 crossterm = "0.25.0"
 
-[target.'cfg(any(unix,windows))'.features]
-default = ["rayon"]
-
-[target.'cfg(not(any(unix,windows)))'.features]
-default = []
-
 [features]
+default = ["rayon"]
 rayon = ["rayon-resizer", "rayon-converter"]
 rayon-resizer = ["dep:rayon", "dep:ndarray"]
 rayon-converter = ["dep:rayon"]

@@ -26,11 +26,11 @@ or for latest version
 git clone https://github.com/WanderLanz/Viuwa.git && cd Viuwa && cargo install --path .
 ```
 
-wasm file is also available in the releases section.
+`wasm` file is also available in the releases section (with `rayon` feature disabled).
 
 ### Features
 
-- `rayon`: Enables both `rayon-resizer` and `rayon-converter`. This is enabled by default on Unix and Windows.
+- `rayon`: Enables both `rayon-resizer` and `rayon-converter`. This is enabled by default.
 - `rayon-resizer`: Enables parallel image resizing.
 - `rayon-converter`: Enables parallel ANSI image generation.
 
