@@ -1,6 +1,6 @@
 [package]
 name = "viuwa"
-version = "0.0.45"
+version = "0.0.46"
 edition = "2021"
 authors = ["Lance Warden"]
 description = "Yet another \"super simple\" cli/tui ANSI image viewer, targeting compatibility with wasm32-wasi."
@@ -11,13 +11,19 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 clap = { version = "4.0.*", features = ["derive", "env"] }
-image = "0.24.*"
+image = "0.24.4"
+rayon = { version = "1.5.*", optional = true }
+ndarray = { version = "0.15.6", optional = true, features = ["rayon"] }
 # base64 = { version = "0.13.*", optional = true }
 
 [target.'cfg(any(unix,windows))'.dependencies]
-crossterm = "0.25.*"
+crossterm = "0.25.0"
 rayon = "1.5.*"
 
-# [features]
+[features]
+default = []
+rayon = ["rayon-resizer", "rayon-converter"]
+rayon-resizer = ["dep:rayon", "dep:ndarray"]
+rayon-converter = ["dep:rayon"]
 # sixel = []
 # iterm = ["dep:base64"]
