@@ -5,6 +5,8 @@
 //! and the `rayon` crate is used to parallelize and speed up the conversions.
 //! Uses things from `ansi_colours` crate to help with ansi 256 conversion.
 
+// #![feature(get_mut_unchecked)]
+
 use clap::Parser;
 
 use image::{self, imageops::FilterType};

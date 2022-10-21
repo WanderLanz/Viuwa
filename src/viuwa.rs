@@ -5,10 +5,19 @@ use std::io::{self, stdout, StdoutLock, Write};
 use std::io::{stdin, Read};
 
 use image::{imageops::FilterType, DynamicImage};
+#[cfg(feature = "rayon-resizer")]
+use image::{ImageBuffer, Luma, Pixel, Rgb};
 
 pub mod ansi;
 
 use ansi::{AnsiImageBuffer, TerminalImpl};
+
+/// Static ref to resize function for convenience and cleaner code
+#[cfg(feature = "rayon-resizer")]
+static RESIZE_FN: &'static (dyn Fn(&DynamicImage, u32, u32, FilterType) -> DynamicImage + Sync) = &unstable_rayon::resize;
+#[cfg(not(feature = "rayon-resizer"))]
+static RESIZE_FN: &'static (dyn Fn(&DynamicImage, u32, u32, FilterType) -> DynamicImage + Sync) =
+        &image::DynamicImage::resize;
 
 /// Wrapper around possibly user-controlled color attributes
 #[derive(Debug, Clone, Copy)]
@@ -84,7 +93,7 @@ impl<'a> Viuwa<'a> {
                 let mut lock = stdout().lock();
                 let size = lock.size(args.quiet)?;
                 let buf = AnsiImageBuffer::from(
-                        orig.resize(size.0 as u32, size.1 as u32 * 2, args.filter),
+                        RESIZE_FN(&orig, size.0 as u32, size.1 as u32 * 2, args.filter),
                         &args.color,
                         &ColorAttributes::new(args.luma_correct),
                 );
@@ -387,7 +396,7 @@ impl<'a> Viuwa<'a> {
         /// Rebuild the buffer with the current image, filter, and format
         fn _rebuild_buf(&mut self) {
                 self.buf.replace_image(
-                        self.orig.resize(self.size.0 as u32, self.size.1 as u32 * 2, self.args.filter),
+                        RESIZE_FN(&self.orig, self.size.0 as u32, self.size.1 as u32 * 2, self.args.filter),
                         &self.args.color,
                         &ColorAttributes::new(self.args.luma_correct),
                 );
@@ -430,7 +439,7 @@ pub fn inline(orig: DynamicImage, args: Args) -> BoxResult<()> {
                 (Some(w), Some(h)) => (w, h),
         };
         let buf = AnsiImageBuffer::from(
-                orig.resize(size.0 as u32, size.1 as u32 * 2, args.filter),
+                RESIZE_FN(&orig, size.0 as u32, size.1 as u32 * 2, args.filter),
                 &args.color,
                 &ColorAttributes::new(args.luma_correct),
         );
@@ -442,4 +451,237 @@ pub fn inline(orig: DynamicImage, args: Args) -> BoxResult<()> {
         }
         lock.flush()?;
         Ok(())
+}
+
+#[cfg(feature = "rayon-resizer")]
+/// Parallelized [image] functions with [rayon], using [ndarray] when needed
+mod unstable_rayon {
+        #![allow(non_upper_case_globals)]
+
+        use super::*;
+
+        use rayon::prelude::*;
+
+        // sinc function: the ideal sampling filter.
+        fn sinc(t: f32) -> f32 {
+                if t == 0.0 {
+                        1.0
+                } else {
+                        let a = t * std::f32::consts::PI;
+                        a.sin() / a
+                }
+        }
+
+        #[inline]
+        fn clamp<N>(a: N, min: N, max: N) -> N
+        where
+                N: PartialOrd,
+        {
+                if a < min {
+                        min
+                } else if a > max {
+                        max
+                } else {
+                        a
+                }
+        }
+
+        const nearest_support: f32 = 0.0;
+        fn nearest_kernel(_: f32) -> f32 { 1.0 }
+        const triangle_support: f32 = 1.0;
+        fn triangle_kernel(x: f32) -> f32 {
+                if x.abs() < 1.0 {
+                        1.0 - x.abs()
+                } else {
+                        0.0
+                }
+        }
+        const catmull_rom_support: f32 = 2.0;
+        fn catmull_rom_kernel(x: f32) -> f32 {
+                let a = x.abs();
+                let k = if a < 1.0 {
+                        9.0 * a.powi(3) - 15.0 * a.powi(2) + 6.0
+                } else if a < 2.0 {
+                        -3.0 * a.powi(3) + 15.0 * a.powi(2) - 24.0 * a + 12.0
+                } else {
+                        0.0
+                };
+                k / 6.0
+        }
+        const gaussian_support: f32 = 3.0;
+        fn gaussian_kernel(x: f32) -> f32 { 0.7978846 * (-x.powi(2) / 0.5).exp() }
+        const lanczos3_support: f32 = 3.0;
+        fn lanczos3_kernel(x: f32) -> f32 {
+                let t = 3.0;
+                if x.abs() < t {
+                        sinc(x) * sinc(x / t)
+                } else {
+                        0.0
+                }
+        }
+
+        /// Resize an image to given size, aspect ratio preserving, same as [image] crate... except parallelized with [rayon] (and [ndarray] for column-major image mutations)
+        pub fn resize(img: &DynamicImage, nw: u32, nh: u32, filter: FilterType) -> DynamicImage {
+                let (w, h) = image::GenericImageView::dimensions(img);
+                // find aspect ratio preserving size for new image
+                let (nw, nh) = {
+                        let wratio = nw as f64 / w as f64;
+                        let hratio = nh as f64 / h as f64;
+
+                        let ratio = f64::min(wratio, hratio);
+
+                        let nw = u64::max((w as f64 * ratio).round() as u64, 1);
+                        let nh = u64::max((h as f64 * ratio).round() as u64, 1);
+
+                        if nw > u64::from(u32::MAX) {
+                                let ratio = u32::MAX as f64 / w as f64;
+                                (u32::MAX, u32::max((h as f64 * ratio).round() as u32, 1))
+                        } else if nh > u64::from(u32::MAX) {
+                                let ratio = u32::MAX as f64 / h as f64;
+                                (u32::max((w as f64 * ratio).round() as u32, 1), u32::MAX)
+                        } else {
+                                (nw as u32, nh as u32)
+                        }
+                };
+                // don't resize if the image is already the correct size
+                if (w, h) == (nw, nh) {
+                        return img.clone();
+                }
+                // else we inline the entire resize function to optimize with parallelism and cache
+                let (kernel, support): (&'static (dyn Fn(f32) -> f32 + Sync), f32) = match filter {
+                        FilterType::Nearest => (&nearest_kernel, nearest_support),
+                        FilterType::Triangle => (&triangle_kernel, triangle_support),
+                        FilterType::CatmullRom => (&catmull_rom_kernel, catmull_rom_support),
+                        FilterType::Gaussian => (&gaussian_kernel, gaussian_support),
+                        FilterType::Lanczos3 => (&lanczos3_kernel, lanczos3_support),
+                };
+                match img {
+                        DynamicImage::ImageRgb8(ref p) => DynamicImage::ImageRgb8(horizontal_sample::<
+                                Rgb<f32>,
+                                Rgb<u8>,
+                                { Rgb::<u8>::CHANNEL_COUNT as usize },
+                        >(
+                                &vertical_sample::<Rgb<u8>, Rgb<f32>, { Rgb::<f32>::CHANNEL_COUNT as usize }>(
+                                        p, nh, kernel, support,
+                                ),
+                                nw,
+                                kernel,
+                                support,
+                        )),
+                        DynamicImage::ImageLuma8(ref p) => DynamicImage::ImageLuma8(horizontal_sample::<
+                                Luma<f32>,
+                                Luma<u8>,
+                                { Luma::<u8>::CHANNEL_COUNT as usize },
+                        >(
+                                &vertical_sample::<Luma<u8>, Luma<f32>, { Luma::<f32>::CHANNEL_COUNT as usize }>(
+                                        p, nh, kernel, support,
+                                ),
+                                nw,
+                                kernel,
+                                support,
+                        )),
+                        _ => unreachable!(),
+                }
+        }
+
+        fn vertical_sample<IP: Pixel<Subpixel = u8> + Sync, OP: Pixel<Subpixel = f32>, const CHANNEL_COUNT: usize>(
+                image: &ImageBuffer<IP, Vec<u8>>,
+                new_height: u32,
+                kernel: &'static (dyn Fn(f32) -> f32 + Sync),
+                support: f32,
+        ) -> ImageBuffer<OP, Vec<f32>> {
+                let (width, height) = image.dimensions();
+                let mut new_image = ImageBuffer::<OP, Vec<f32>>::new(width, new_height).into_vec();
+                let ratio = height as f32 / new_height as f32;
+                let sratio = if ratio < 1.0 { 1.0 } else { ratio };
+                let src_support = support * sratio;
+                (0..new_height)
+                        .into_par_iter()
+                        .zip(new_image.par_chunks_exact_mut(width as usize * CHANNEL_COUNT))
+                        .for_each_with(image, |image, (outy, row)| {
+                                let inputy = (outy as f32 + 0.5) * ratio;
+                                let left = (inputy - src_support).floor() as i64;
+                                let left = clamp(left, 0, <i64 as From<_>>::from(height) - 1) as u32;
+                                let right = (inputy + src_support).ceil() as i64;
+                                let right = clamp(right, <i64 as From<_>>::from(left) + 1, <i64 as From<_>>::from(height))
+                                        as u32;
+                                let inputy = inputy - 0.5;
+                                let mut weights = Vec::with_capacity(right.saturating_sub(left) as usize);
+                                let mut sum = 0.0;
+                                for i in left..right {
+                                        let w = kernel((i as f32 - inputy) / sratio);
+                                        weights.push(w);
+                                        sum += w;
+                                }
+                                weights.iter_mut().for_each(|w| *w /= sum);
+                                for x in 0..width {
+                                        let row_index = x as usize * CHANNEL_COUNT;
+                                        for (i, w) in weights.iter().enumerate() {
+                                                let p = image.get_pixel(x, left + i as u32).channels();
+                                                for i in 0..CHANNEL_COUNT {
+                                                        row[row_index + i] += p[i] as f32 * w;
+                                                }
+                                        }
+                                }
+                        });
+                ImageBuffer::from_vec(width, new_height, new_image).expect("Everything. Is. Fine. :VSRGB")
+        }
+
+        fn horizontal_sample<IP: Pixel<Subpixel = f32> + Sync, OP: Pixel<Subpixel = u8>, const CHANNEL_COUNT: usize>(
+                image: &ImageBuffer<IP, Vec<f32>>,
+                new_width: u32,
+                kernel: &'static (dyn Fn(f32) -> f32 + Sync),
+                support: f32,
+        ) -> ImageBuffer<OP, Vec<u8>> {
+                let (width, height) = image.dimensions();
+                // Axes: rows, columns, pixels
+                let mut new_image = unsafe {
+                        ndarray::Array3::from_shape_vec_unchecked(
+                                (height as usize, new_width as usize, CHANNEL_COUNT),
+                                ImageBuffer::<OP, Vec<u8>>::new(new_width, height).into_vec(),
+                        )
+                };
+                let max: f32 = u8::MAX as f32;
+                let min: f32 = u8::MIN as f32;
+                let ratio = width as f32 / new_width as f32;
+                let sratio = if ratio < 1.0 { 1.0 } else { ratio };
+                let src_support = support * sratio;
+                new_image
+                        .axis_iter_mut(ndarray::Axis(1)) // Iterate over the columns
+                        .into_par_iter()
+                        .enumerate()
+                        .for_each_with(image, |image, (outx, mut col)| {
+                                let inputx = (outx as f32 + 0.5) * ratio;
+                                let left = (inputx - src_support).floor() as i64;
+                                let left = clamp(left, 0, width as i64 - 1) as u32;
+                                let right = (inputx + src_support).ceil() as i64;
+                                let right = clamp(right, left as i64 + 1, width as i64) as u32;
+                                let inputx = inputx - 0.5;
+                                // Allocating new vector because we rebuild vector of weights for each column
+                                let mut weights = Vec::with_capacity(right.saturating_sub(left) as usize);
+                                let mut sum = 0.0;
+                                for i in left..right {
+                                        let w = kernel((i as f32 - inputx) / sratio);
+                                        weights.push(w);
+                                        sum += w;
+                                }
+                                weights.iter_mut().for_each(|w| *w /= sum);
+                                for y in 0..height {
+                                        let mut t = [0.0; CHANNEL_COUNT];
+                                        for (i, w) in weights.iter().enumerate() {
+                                                let p = image.get_pixel(left + i as u32, y).channels();
+                                                for i in 0..CHANNEL_COUNT {
+                                                        t[i] += p[i] * w;
+                                                }
+                                        }
+                                        col.index_axis_mut(ndarray::Axis(0), y as usize) // Get pixel at row[y]
+                                                .into_iter()
+                                                .zip(t.iter())
+                                                .for_each(|(p, &t)| {
+                                                        *p = clamp(t, min, max).round() as u8;
+                                                });
+                                }
+                        });
+                ImageBuffer::from_vec(new_width, height, new_image.into_raw_vec()).expect("Everything. Is. Fine. :HSRGB")
+        }
 }
