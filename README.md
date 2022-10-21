@@ -28,6 +28,12 @@ git clone https://github.com/WanderLanz/Viuwa.git && cd Viuwa && cargo install -
 
 wasm file is also available in the releases section.
 
+### Features
+
+- `rayon`: Enables both `rayon-resizer` and `rayon-converter`. This is enabled by default on Unix and Windows.
+- `rayon-resizer`: Enables parallel image resizing.
+- `rayon-converter`: Enables parallel ANSI image generation.
+
 ## Usage
 
 ### Windowed image viewing (e.g. Vim)
@@ -48,7 +54,7 @@ viuwa [image] --inline
 viuwa --help
 ```
 
-## Examples
+### Examples
 
 inlined w/ nearest filter
 
@@ -66,14 +72,12 @@ tui help
 
 ### Environment variables
 
-All Modes:
-
 - `VIUWA_QUIET`: If set to `true`, viuwa will not print any messages or warnings.
 - `VIUWA_FILTER`: Set the filter type to use when resizing the image. Possible values are `Nearest`, `Triangle`, `CatmullRom`, `Gaussian`, `Lanczos3`. Defaults to `Nearest`.
 - `VIUWA_COLOR`: Set the color type of the output ansi image. Possible values are `Truecolor`, `256`, `Gray`, and `256Gray`. Defaults to `Truecolor`.
 - `VIUWA_CORRECT`: Set the luma correction level for 256 color mode, allows more pixels to be converted to grayscale for better contrast. 0-100, Defaults to `100`.
 
-Inlined (CLI) Mode:
+With inline flag:
 
 - `VIUWA_INLINE`: If set to `true`, viuwa will inline the resulting ANSI image instead of using a tui.
 - `VIUWA_WIDTH`: Set width of inlined ANSI image, else does nothing.
@@ -97,5 +101,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - [![clap crate](https://img.shields.io/static/v1?label=crates.io&message=clap&color=B94700&logo=rust&style=flat)](https://crates.io/crates/clap)
 - [![image crate](https://img.shields.io/static/v1?label=crates.io&message=image&color=B94700&logo=rust&style=flat)](https://crates.io/crates/image)
-- [![crossterm crate](https://img.shields.io/static/v1?label=crates.io&message=crossterm&color=B94700&logo=rust&style=flat)](https://crates.io/crates/crossterm)
 - [![rayon crate](https://img.shields.io/static/v1?label=crates.io&message=rayon&color=B94700&logo=rust&style=flat)](https://crates.io/crates/rayon)
+- [![ndarray crate](https://img.shields.io/static/v1?label=crates.io&message=ndarray&color=B94700&logo=rust&style=flat)](https://crates.io/crates/ndarray)
+- [![crossterm crate](https://img.shields.io/static/v1?label=crates.io&message=crossterm&color=B94700&logo=rust&style=flat)](https://crates.io/crates/crossterm)

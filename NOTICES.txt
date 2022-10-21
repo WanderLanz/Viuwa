@@ -76,10 +76,13 @@ The viuwa package uses some third party libraries under their own license terms:
  * libc 0.2.134 under the terms of MIT / Apache-2.0
  * lock_api 0.4.9 under the terms of MIT / Apache-2.0
  * log 0.4.17 under the terms of MIT / Apache-2.0
+ * matrixmultiply 0.3.2 under the terms of MIT / Apache-2.0
  * memoffset 0.6.5 under the terms of MIT
  * miniz_oxide 0.5.4 under the terms of MIT / Apache-2.0 / Zlib
  * mio 0.8.4 under the terms of MIT
  * nanorand 0.7.0 under the terms of Zlib
+ * ndarray 0.15.6 under the terms of MIT / Apache-2.0
+ * num-complex 0.4.2 under the terms of MIT / Apache-2.0
  * num-integer 0.1.45 under the terms of MIT / Apache-2.0
  * num-rational 0.4.1 under the terms of MIT / Apache-2.0
  * num-traits 0.2.15 under the terms of MIT / Apache-2.0
@@ -95,6 +98,7 @@ The viuwa package uses some third party libraries under their own license terms:
  * proc-macro-error-attr 1.0.4 under the terms of MIT / Apache-2.0
  * proc-macro2 1.0.46 under the terms of MIT / Apache-2.0
  * quote 1.0.21 under the terms of MIT / Apache-2.0
+ * rawpointer 0.2.1 under the terms of MIT / Apache-2.0
  * rayon 1.5.3 under the terms of MIT / Apache-2.0
  * rayon-core 1.9.3 under the terms of MIT / Apache-2.0
  * redox_syscall 0.2.16 under the terms of MIT
@@ -111,6 +115,7 @@ The viuwa package uses some third party libraries under their own license terms:
  * threadpool 1.8.1 under the terms of MIT / Apache-2.0
  * tiff 0.7.3 under the terms of MIT
  * unicode-ident 1.0.4 under the terms of (MIT / Apache-2.0) AND Unicode-DFS-2016
+ * viuwa 0.0.46 under the terms of MIT / Apache-2.0
  * wasi 0.11.0+wasi-snapshot-preview1 under the terms of MIT / Apache-2.0 / Apache-2.0 WITH LLVM-exception
  * wasm-bindgen 0.2.83 under the terms of MIT / Apache-2.0
  * wasm-bindgen-backend 0.2.83 under the terms of MIT / Apache-2.0
