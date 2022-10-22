@@ -306,8 +306,7 @@ impl<'a> Viuwa<'a> {
         }
         /// Write the buffer to the terminal, and move the cursor to the bottom left
         fn _draw(&mut self) -> BoxResult<()> {
-                self.lock.clear_buffer()?;
-                self.lock.clear_screen()?;
+                self.lock.clear()?;
                 let ox = (self.size.0 - self.ansi.size().0) / 2;
                 let oy = (self.size.1 - self.ansi.size().1) / 2;
                 for (y, row) in self.ansi.rows().enumerate() {
@@ -321,7 +320,7 @@ impl<'a> Viuwa<'a> {
         }
         /// clear screen, print help, and quit 'q'
         fn _help(&mut self) -> BoxResult<()> {
-                self.lock.clear_screen()?;
+                self.lock.clear()?;
                 self.lock.cursor_home()?;
                 self._write_centerx(0, "Viuwa help:")?;
                 self._write_centerxy_align_all(
