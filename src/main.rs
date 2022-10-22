@@ -36,7 +36,11 @@ const UPPER_HALF_BLOCK: &str = "\u{2580}";
         about = env!("CARGO_PKG_DESCRIPTION"),
 )]
 pub struct Args {
-        #[arg(help = "The path to the image to display in ansi", required = true, value_name = "FILE")]
+        #[arg(
+                help = "The path to the image to display in ansi",
+                required = true,
+                value_name = "FILE"
+        )]
         image: PathBuf,
         #[arg(
                 short,
@@ -65,7 +69,12 @@ pub struct Args {
                 value_parser = clap::value_parser!(u32).range(0..=100)
         )]
         luma_correct: u32,
-        #[arg(short, long, help = "Do not print warnings or messages", env = "VIUWA_QUIET")]
+        #[arg(
+                short,
+                long,
+                help = "Do not print warnings or messages",
+                env = "VIUWA_QUIET"
+        )]
         quiet: bool,
         #[arg(
                 short,
@@ -92,7 +101,7 @@ pub struct Args {
         height: Option<u16>,
 }
 
-fn parse_filter_type<'a>(filter: &'a str) -> Result<FilterType, String> {
+fn parse_filter_type(filter: &str) -> Result<FilterType, String> {
         match filter.to_ascii_lowercase().as_str() {
                 "nearest" | "1" => Ok(FilterType::Nearest),
                 "triangle" | "2" => Ok(FilterType::Triangle),
@@ -103,7 +112,7 @@ fn parse_filter_type<'a>(filter: &'a str) -> Result<FilterType, String> {
         }
 }
 
-fn parse_color_type<'a>(format: &'a str) -> Result<viuwa::ColorType, String> {
+fn parse_color_type(format: &str) -> Result<viuwa::ColorType, String> {
         match format.to_ascii_lowercase().as_str() {
                 "truecolor" | "1" => Ok(viuwa::ColorType::Color),
                 "256" | "2" => Ok(viuwa::ColorType::Color256),
@@ -115,21 +124,22 @@ fn parse_color_type<'a>(format: &'a str) -> Result<viuwa::ColorType, String> {
 
 fn main() -> BoxResult<()> {
         let args = Args::parse();
+        // TODO: since we have --quiet flag, we can wait for user confirmation before continuing
         if !args.quiet {
                 if !supports_ansi() {
                         eprintln!("WARNING: Could not verify that terminal supports ansi");
                 }
                 #[cfg(target_family = "wasm")]
                 if is_windows() {
-                        eprintln!("WARNING: Windows support with wasm is unstable, as it may require Win32 API unavailable in wasi");
+                        eprintln!("WARNING: Windows support with wasm is unstable");
                 }
         }
         // wasi doesn't have universal support for async I/O
         let orig = image::open(&args.image)?;
         if !args.quiet {
-                // if image is larger than a 4k image, warn the user
-                if orig.width() > 3840 && orig.height() > 2160 {
-                        eprintln!("WARNING: Large images may cause significant performance issues when changing filter type or resizing");
+                // if image is larger than or equal to a 4k image, warn the user
+                if orig.width().saturating_mul(orig.height()) >= 3840 * 2160 {
+                        eprintln!("WARNING: Large images may cause significant performance issues");
                 }
         }
         if !args.inline {
@@ -154,7 +164,10 @@ fn supports_ansi() -> bool { crossterm::ansi_support::supports_ansi() }
 #[cfg(target_family = "wasm")]
 fn is_windows() -> bool {
         std::env::var("OS").map_or_else(
-                |_| std::env::var("SystemRoot").map_or(false, |s| s.to_ascii_lowercase().contains("windows")),
+                |_| {
+                        std::env::var("SystemRoot")
+                                .map_or(false, |s| s.to_ascii_lowercase().contains("windows"))
+                },
                 |os| os.to_ascii_lowercase().contains("windows"),
         )
 }

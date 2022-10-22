@@ -86,7 +86,10 @@ struct Coord {
 }
 impl Coord {
         /// Safe maximum of Coord assuming 16-bit signed integers is used by terminal for cursor position. (Max value is 32767 for c_short)
-        const MAX: Coord = Coord { x: 0x7FFF, y: 0x7FFF };
+        const MAX: Coord = Coord {
+                x: 0x7FFF,
+                y: 0x7FFF,
+        };
         // fn new(x: u16, y: u16) -> Self { Self { x, y } }
         // fn as_report(&self) -> String { format!("{};{}", self.y, self.x) }
         /// e.g. "1;2" -> Coord { x: 2, y: 1 }
@@ -162,37 +165,83 @@ pub trait TerminalImpl
 where
         Self: io::Write + Sized,
 {
-        fn clear_buffer(&mut self) -> io::Result<()> { self.write_all(term::CLEAR_BUFFER.as_bytes()) }
-        fn clear_screen(&mut self) -> io::Result<()> { self.write_all(term::CLEAR_SCREEN.as_bytes()) }
+        #[inline]
+        fn clear(&mut self) -> io::Result<()> {
+                self.clear_buffer().and_then(|_| self.clear_screen())
+        }
+        #[inline]
+        fn clear_buffer(&mut self) -> io::Result<()> {
+                self.write_all(term::CLEAR_BUFFER.as_bytes())
+        }
+        #[inline]
+        fn clear_screen(&mut self) -> io::Result<()> {
+                self.write_all(term::CLEAR_SCREEN.as_bytes())
+        }
+        #[inline]
         fn clear_line(&mut self) -> io::Result<()> { self.write_all(term::CLEAR_LINE.as_bytes()) }
-        fn clear_line_to_end(&mut self) -> io::Result<()> { self.write_all(term::CLEAR_LINE_TO_END.as_bytes()) }
-        fn clear_line_to_start(&mut self) -> io::Result<()> { self.write_all(term::CLEAR_LINE_TO_START.as_bytes()) }
-        fn clear_screen_to_end(&mut self) -> io::Result<()> { self.write_all(term::CLEAR_SCREEN_TO_END.as_bytes()) }
-        fn clear_screen_to_start(&mut self) -> io::Result<()> { self.write_all(term::CLEAR_SCREEN_TO_START.as_bytes()) }
-        /// !windows
+        #[inline]
+        fn clear_line_to_end(&mut self) -> io::Result<()> {
+                self.write_all(term::CLEAR_LINE_TO_END.as_bytes())
+        }
+        #[inline]
+        fn clear_line_to_start(&mut self) -> io::Result<()> {
+                self.write_all(term::CLEAR_LINE_TO_START.as_bytes())
+        }
+        #[inline]
+        fn clear_screen_to_end(&mut self) -> io::Result<()> {
+                self.write_all(term::CLEAR_SCREEN_TO_END.as_bytes())
+        }
+        #[inline]
+        fn clear_screen_to_start(&mut self) -> io::Result<()> {
+                self.write_all(term::CLEAR_SCREEN_TO_START.as_bytes())
+        }
+        #[inline]
+        /// does not work on windows
         fn reset(&mut self) -> io::Result<()> { self.write_all(term::RESET.as_bytes()) }
+        #[inline]
         fn soft_reset(&mut self) -> io::Result<()> { self.write_all(term::SOFT_RESET.as_bytes()) }
-        fn enter_alt_screen(&mut self) -> io::Result<()> { self.write_all(term::ENTER_ALT_SCREEN.as_bytes()) }
-        fn exit_alt_screen(&mut self) -> io::Result<()> { self.write_all(term::EXIT_ALT_SCREEN.as_bytes()) }
-        fn enable_line_wrap(&mut self) -> io::Result<()> { self.write_all(term::ENABLE_LINE_WRAP.as_bytes()) }
-        fn disable_line_wrap(&mut self) -> io::Result<()> { self.write_all(term::DISABLE_LINE_WRAP.as_bytes()) }
+        #[inline]
+        fn enter_alt_screen(&mut self) -> io::Result<()> {
+                self.write_all(term::ENTER_ALT_SCREEN.as_bytes())
+        }
+        #[inline]
+        fn exit_alt_screen(&mut self) -> io::Result<()> {
+                self.write_all(term::EXIT_ALT_SCREEN.as_bytes())
+        }
+        #[inline]
+        fn enable_line_wrap(&mut self) -> io::Result<()> {
+                self.write_all(term::ENABLE_LINE_WRAP.as_bytes())
+        }
+        #[inline]
+        fn disable_line_wrap(&mut self) -> io::Result<()> {
+                self.write_all(term::DISABLE_LINE_WRAP.as_bytes())
+        }
         #[cfg(any(windows, unix))]
         #[inline]
         fn enable_raw_mode(&mut self) -> io::Result<()> { ::crossterm::terminal::enable_raw_mode() }
         #[cfg(target_family = "wasm")]
-        fn enable_raw_mode(&mut self) -> io::Result<()> { self.write_all(term::ENABLE_RAW_MODE.as_bytes()) }
+        fn enable_raw_mode(&mut self) -> io::Result<()> {
+                self.write_all(term::ENABLE_RAW_MODE.as_bytes())
+        }
         #[cfg(any(windows, unix))]
         #[inline]
-        fn disable_raw_mode(&mut self) -> io::Result<()> { ::crossterm::terminal::disable_raw_mode() }
+        fn disable_raw_mode(&mut self) -> io::Result<()> {
+                ::crossterm::terminal::disable_raw_mode()
+        }
         #[cfg(target_family = "wasm")]
-        fn disable_raw_mode(&mut self) -> io::Result<()> { self.write_all(term::DISABLE_RAW_MODE.as_bytes()) }
+        #[inline]
+        fn disable_raw_mode(&mut self) -> io::Result<()> {
+                self.write_all(term::DISABLE_RAW_MODE.as_bytes())
+        }
 
         /// Set the window title using ansi escape codes
         fn set_title<T: ::std::fmt::Display>(&mut self, title: &T) -> io::Result<()> {
                 write!(self, osc!("0;", st!("{}")), title)
         }
         /// Resize the window using ansi escape codes
-        fn resize(&mut self, width: u16, height: u16) -> io::Result<()> { write!(self, csi!("8;{};{}t"), height, width) }
+        fn resize(&mut self, width: u16, height: u16) -> io::Result<()> {
+                write!(self, csi!("8;{};{}t"), height, width)
+        }
         /// Attempt to read the terminal size in characters
         #[cfg(any(windows, unix))]
         #[inline]
@@ -206,7 +255,9 @@ where
         #[cfg(target_family = "wasm")]
         fn size(&mut self, quiet: bool) -> io::Result<(u16, u16)> {
                 // if terms who don't support cursor report at least export COLUMNS and LINES, then we can use that, even if it's not accurate
-                if let Ok(s) = std::env::var("COLUMNS").and_then(|cols| std::env::var("LINES").map(|lines| (cols, lines))) {
+                if let Ok(s) = std::env::var("COLUMNS")
+                        .and_then(|cols| std::env::var("LINES").map(|lines| (cols, lines)))
+                {
                         if let (Ok(cols), Ok(lines)) = (s.0.parse(), s.1.parse()) {
                                 return Ok((cols, lines));
                         }
@@ -218,7 +269,11 @@ where
                 }
                 self.cursor_save()?;
                 self.cursor_to(Coord::MAX.x, Coord::MAX.y)?;
-                self.write_all([term::REPORT_CURSOR_POSITION, term::RESTORE_CURSOR].concat().as_bytes())?;
+                self.write_all(
+                        [term::REPORT_CURSOR_POSITION, term::RESTORE_CURSOR]
+                                .concat()
+                                .as_bytes(),
+                )?;
                 self.flush()?;
                 let mut buf = [0; 1];
                 let mut s = Vec::<u8>::with_capacity(10);
@@ -244,15 +299,33 @@ where
                 }
                 Ok((crate::DEFAULT_COLS, crate::DEFAULT_ROWS))
         }
+        #[inline]
         fn cursor_hide(&mut self) -> io::Result<()> { self.write_all(term::HIDE_CURSOR.as_bytes()) }
+        #[inline]
         fn cursor_show(&mut self) -> io::Result<()> { self.write_all(term::SHOW_CURSOR.as_bytes()) }
+        #[inline]
         fn cursor_save(&mut self) -> io::Result<()> { self.write_all(term::SAVE_CURSOR.as_bytes()) }
-        fn cursor_restore(&mut self) -> io::Result<()> { self.write_all(term::RESTORE_CURSOR.as_bytes()) }
-        fn cursor_report_position(&mut self) -> io::Result<()> { self.write_all(term::REPORT_CURSOR_POSITION.as_bytes()) }
-        fn cursor_next_line(&mut self) -> io::Result<()> { self.write_all(cursor::NEXT_LINE.as_bytes()) }
-        fn cursor_prev_line(&mut self) -> io::Result<()> { self.write_all(cursor::PREV_LINE.as_bytes()) }
+        #[inline]
+        fn cursor_restore(&mut self) -> io::Result<()> {
+                self.write_all(term::RESTORE_CURSOR.as_bytes())
+        }
+        #[inline]
+        fn cursor_report_position(&mut self) -> io::Result<()> {
+                self.write_all(term::REPORT_CURSOR_POSITION.as_bytes())
+        }
+        #[inline]
+        fn cursor_next_line(&mut self) -> io::Result<()> {
+                self.write_all(cursor::NEXT_LINE.as_bytes())
+        }
+        #[inline]
+        fn cursor_prev_line(&mut self) -> io::Result<()> {
+                self.write_all(cursor::PREV_LINE.as_bytes())
+        }
+        #[inline]
         fn cursor_home(&mut self) -> io::Result<()> { self.write_all(cursor::HOME.as_bytes()) }
-        fn cursor_to(&mut self, x: u16, y: u16) -> io::Result<()> { write!(self, csi!("{};{}H"), y + 1, x + 1) }
+        fn cursor_to(&mut self, x: u16, y: u16) -> io::Result<()> {
+                write!(self, csi!("{};{}H"), y + 1, x + 1)
+        }
         fn cursor_to_col(&mut self, x: u16) -> io::Result<()> { write!(self, csi!("{}G"), x + 1) }
         fn cursor_up(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}A"), n) }
         fn cursor_down(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}B"), n) }
@@ -260,6 +333,7 @@ where
         fn cursor_backward(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}D"), n) }
         fn cursor_next_lines(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}E"), n) }
         fn cursor_prev_lines(&mut self, n: u16) -> io::Result<()> { write!(self, csi!("{}F"), n) }
+        #[inline]
         fn attr_reset(&mut self) -> io::Result<()> { self.write_all(attr::RESET.as_bytes()) }
 }
 impl<'a> TerminalImpl for io::StdoutLock<'a> {}
@@ -270,14 +344,26 @@ impl TerminalImpl for io::Stdout {}
 pub struct AnsiRow(pub Vec<u8>);
 impl AnsiRow {
         #[inline]
-        pub fn reserve<C: AnsiColor>(&mut self, width: u16) { self.0.reserve(width as usize * C::RESERVE_CHAR); }
-        pub fn new<C: AnsiColor>(width: u16) -> Self { Self(Vec::with_capacity(width as usize * C::RESERVE_CHAR)) }
+        pub fn reserve<C: AnsiColor>(&mut self, width: u16) {
+                self.0.reserve(width as usize * C::RESERVE_CHAR);
+        }
+        pub fn new<C: AnsiColor>(width: u16) -> Self {
+                Self(Vec::with_capacity(width as usize * C::RESERVE_CHAR))
+        }
         #[inline]
-        pub fn set_fg<C: AnsiColor, P: AnsiPixel>(&mut self, fg: &[u8], attrs: &ColorAttributes) -> io::Result<()> {
+        pub fn set_fg<C: AnsiColor, P: AnsiPixel>(
+                &mut self,
+                fg: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()> {
                 C::set_fg::<P>(&mut self.0, fg, attrs)
         }
         #[inline]
-        pub fn set_bg<C: AnsiColor, P: AnsiPixel>(&mut self, bg: &[u8], attrs: &ColorAttributes) -> io::Result<()> {
+        pub fn set_bg<C: AnsiColor, P: AnsiPixel>(
+                &mut self,
+                bg: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()> {
                 C::set_bg::<P>(&mut self.0, bg, attrs)
         }
         #[inline]
@@ -295,7 +381,11 @@ pub struct AnsiImage {
 }
 impl AnsiImage {
         /// Create a new AnsiImageBuffer from a given image and color type and attributes.
-        pub fn from(img: DynamicImage, color_type: &ColorType, color_attrs: &ColorAttributes) -> Self {
+        pub fn from(
+                img: DynamicImage,
+                color_type: &ColorType,
+                color_attrs: &ColorAttributes,
+        ) -> Self {
                 let size = Self::_get_size_from(img.dimensions());
                 let mut buf = Vec::with_capacity(size.1 as usize);
                 if color_type.is_24bit() {
@@ -322,7 +412,12 @@ impl AnsiImage {
                 ret
         }
         /// Replace image in buffer with new image, assumes image is resized to fit.
-        pub fn replace_image(&mut self, img: DynamicImage, color_type: &ColorType, color_attrs: &ColorAttributes) {
+        pub fn replace_image(
+                &mut self,
+                img: DynamicImage,
+                color_type: &ColorType,
+                color_attrs: &ColorAttributes,
+        ) {
                 self.size = Self::_get_size_from(img.dimensions());
                 if img.color().has_color() && color_type.is_color() {
                         let img = img.into_rgb8();
@@ -361,13 +456,18 @@ impl AnsiImage {
                 // fill uninitialized rows within size
                 let uninit = nrows.saturating_sub(self.buf.len());
                 self.buf.reserve(uninit);
-                self.buf.extend(std::iter::repeat_with(|| AnsiRow::new::<C>(self.size.0)).take(uninit));
+                self.buf.extend(
+                        std::iter::repeat_with(|| AnsiRow::new::<C>(self.size.0)).take(uninit)
+                );
         }
         /// Write rows of an image as ANSI colors and half block characters, 2 rows of image pixels per row of ansi,
         /// assumes buf is already cleared
         #[cfg(feature = "rayon-converter")]
-        fn _fill<C: AnsiColor, P>(&mut self, img: image::ImageBuffer<P, Vec<P::Subpixel>>, attrs: &ColorAttributes)
-        where
+        fn _fill<C: AnsiColor, P>(
+                &mut self,
+                img: image::ImageBuffer<P, Vec<P::Subpixel>>,
+                attrs: &ColorAttributes,
+        ) where
                 P: Pixel<Subpixel = u8> + AnsiPixel,
         {
                 self.buf.par_iter_mut()
@@ -375,8 +475,10 @@ impl AnsiImage {
                         .zip(img.into_vec()
                                 .par_chunks(P::CHANNEL_COUNT as usize * self.size.0 as usize * 2)
                                 .map(|v| {
-                                        v.chunks_exact(P::CHANNEL_COUNT as usize * self.size.0 as usize)
-                                                .map(|v| v.chunks_exact(P::CHANNEL_COUNT as usize))
+                                        v.chunks_exact(
+                                                P::CHANNEL_COUNT as usize * self.size.0 as usize,
+                                        )
+                                        .map(|v| v.chunks_exact(P::CHANNEL_COUNT as usize))
                                 }))
                         .for_each(|(row_buf, mut pxs)| match (pxs.next(), pxs.next()) {
                                 (Some(fgs), Some(bgs)) => fgs.zip(bgs).for_each(|(fg, bg)| {
@@ -392,8 +494,11 @@ impl AnsiImage {
                         });
         }
         #[cfg(not(feature = "rayon-converter"))]
-        fn _fill<C: AnsiColor, P>(&mut self, img: image::ImageBuffer<P, Vec<P::Subpixel>>, attrs: &ColorAttributes)
-        where
+        fn _fill<C: AnsiColor, P>(
+                &mut self,
+                img: image::ImageBuffer<P, Vec<P::Subpixel>>,
+                attrs: &ColorAttributes,
+        ) where
                 P: Pixel<Subpixel = u8> + AnsiPixel,
         {
                 let rows = img.into_vec();
@@ -418,7 +523,9 @@ impl AnsiImage {
         }
         /// Get ansi image dimensions from real image dimensions
         #[inline]
-        fn _get_size_from((width, height): (u32, u32)) -> (u16, u16) { (width as u16, ((height / 2) + (height % 2)) as u16) }
+        fn _get_size_from((width, height): (u32, u32)) -> (u16, u16) {
+                (width as u16, ((height / 2) + (height % 2)) as u16)
+        }
 }
 
 impl<'a> IntoIterator for &'a AnsiImage {

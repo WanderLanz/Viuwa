@@ -14,7 +14,8 @@ use ansi::{AnsiImage, TerminalImpl};
 
 /// Static ref to resize function for convenience and cleaner code
 #[cfg(feature = "rayon-resizer")]
-static RESIZE_FN: &'static (dyn Fn(&DynamicImage, u32, u32, FilterType) -> DynamicImage + Sync) = &unstable_rayon::resize;
+static RESIZE_FN: &'static (dyn Fn(&DynamicImage, u32, u32, FilterType) -> DynamicImage + Sync) =
+        &unstable_rayon::resize;
 #[cfg(not(feature = "rayon-resizer"))]
 static RESIZE_FN: &'static (dyn Fn(&DynamicImage, u32, u32, FilterType) -> DynamicImage + Sync) =
         &image::DynamicImage::resize;
@@ -31,7 +32,9 @@ impl ColorAttributes {
         // distance threshold = (MAX_COLOR_DISTANCE / 100) * ((100 - luma_correct)^2 / 100)
         pub fn new(luma_correct: u32) -> Self {
                 Self {
-                        luma_correct: (((100 - luma_correct).pow(2) / 100) as f32 * ansi::color::MAP_0_100_DIST) as u32,
+                        luma_correct: (((100 - luma_correct).pow(2) / 100) as f32
+                                * ansi::color::MAP_0_100_DIST)
+                                as u32,
                 }
         }
 }
@@ -360,10 +363,10 @@ impl<'a> Viuwa<'a> {
         }
         /// print strings centered and aligned on the x axis and y axis
         fn _write_centerxy_align_all(&mut self, s: &Vec<&str>) -> BoxResult<()> {
-                if let Some(max) = s.into_iter().map(|x| x.len()).max() {
+                if let Some(max) = s.iter().map(|x| x.len()).max() {
                         let ox = (self.size.0 - max as u16) / 2;
                         let oy = (self.size.1 - s.len() as u16) / 2;
-                        for (i, line) in s.into_iter().enumerate() {
+                        for (i, line) in s.iter().enumerate() {
                                 self.lock.cursor_to(ox, oy + i as u16)?;
                                 self.lock.write_all(line.as_bytes())?;
                         }
@@ -391,7 +394,12 @@ impl<'a> Viuwa<'a> {
         /// Rebuild the buffer with the current image, filter, and format
         fn _rebuild_buf(&mut self) {
                 self.ansi.replace_image(
-                        RESIZE_FN(&self.orig, self.size.0 as u32, self.size.1 as u32 * 2, self.args.filter),
+                        RESIZE_FN(
+                                &self.orig,
+                                self.size.0 as u32,
+                                self.size.1 as u32 * 2,
+                                self.args.filter,
+                        ),
                         &self.args.color,
                         &ColorAttributes::new(self.args.luma_correct),
                 );
@@ -416,7 +424,9 @@ fn wait_for_quit() -> BoxResult<()> {
         loop {
                 match crossterm::event::read()? {
                         crossterm::event::Event::Key(crossterm::event::KeyEvent {
-                                code: crossterm::event::KeyCode::Char('q') | crossterm::event::KeyCode::Esc,
+                                code:
+                                        crossterm::event::KeyCode::Char('q')
+                                        | crossterm::event::KeyCode::Esc,
                                 ..
                         }) => break,
                         _ => continue,
@@ -453,13 +463,20 @@ pub fn inline(orig: DynamicImage, args: Args) -> BoxResult<()> {
 mod unstable_rayon {
         #![allow(non_upper_case_globals)]
 
+        // use std::marker::PhantomData;
+
         use crate::unexpected_err;
 
         use super::*;
 
-        use rayon::prelude::*;
+        use rayon::{
+                iter::{IndexedParallelIterator, ParallelIterator},
+                prelude::*,
+        };
 
-        // sinc function: the ideal sampling filter.
+        type KernelFn = &'static (dyn Fn(f32) -> f32 + Sync);
+
+        #[inline]
         fn sinc(t: f32) -> f32 {
                 if t == 0.0 {
                         1.0
@@ -482,8 +499,10 @@ mod unstable_rayon {
                 }
         }
         const nearest_support: f32 = 0.0;
+        #[inline]
         fn nearest_kernel(_: f32) -> f32 { 1.0 }
         const triangle_support: f32 = 1.0;
+        #[inline]
         fn triangle_kernel(x: f32) -> f32 {
                 if x.abs() < 1.0 {
                         1.0 - x.abs()
@@ -504,8 +523,10 @@ mod unstable_rayon {
                 k / 6.0
         }
         const gaussian_support: f32 = 3.0;
+        #[inline]
         fn gaussian_kernel(x: f32) -> f32 { 0.7978846 * (-x.powi(2) / 0.5).exp() }
         const lanczos3_support: f32 = 3.0;
+        #[inline]
         fn lanczos3_kernel(x: f32) -> f32 {
                 let t = 3.0;
                 if x.abs() < t {
@@ -541,7 +562,7 @@ mod unstable_rayon {
                 if (w, h) == (nw, nh) {
                         return img.clone();
                 }
-                // else we inline the entire resize function to optimize with parallelism and cache
+                // else we inline the entire resize function to parallelize
                 let (kernel, support): (&'static (dyn Fn(f32) -> f32 + Sync), f32) = match filter {
                         FilterType::Nearest => (&nearest_kernel, nearest_support),
                         FilterType::Triangle => (&triangle_kernel, triangle_support),
@@ -550,39 +571,55 @@ mod unstable_rayon {
                         FilterType::Lanczos3 => (&lanczos3_kernel, lanczos3_support),
                 };
                 match img {
-                        DynamicImage::ImageRgb8(ref p) => DynamicImage::ImageRgb8(horizontal_sample::<
-                                Rgb<f32>,
-                                Rgb<u8>,
-                                { Rgb::<u8>::CHANNEL_COUNT as usize },
-                        >(
-                                &vertical_sample::<Rgb<u8>, Rgb<f32>, { Rgb::<f32>::CHANNEL_COUNT as usize }>(
-                                        p, nh, kernel, support,
-                                ),
-                                nw,
-                                kernel,
-                                support,
-                        )),
-                        DynamicImage::ImageLuma8(ref p) => DynamicImage::ImageLuma8(horizontal_sample::<
-                                Luma<f32>,
-                                Luma<u8>,
-                                { Luma::<u8>::CHANNEL_COUNT as usize },
-                        >(
-                                &vertical_sample::<Luma<u8>, Luma<f32>, { Luma::<f32>::CHANNEL_COUNT as usize }>(
-                                        p, nh, kernel, support,
-                                ),
-                                nw,
-                                kernel,
-                                support,
-                        )),
+                        DynamicImage::ImageRgb8(ref buf) => {
+                                DynamicImage::ImageRgb8(horizontal_sample::<
+                                        Rgb<f32>,
+                                        Rgb<u8>,
+                                        { Rgb::<u8>::CHANNEL_COUNT as usize },
+                                >(
+                                        &vertical_sample::<
+                                                Rgb<u8>,
+                                                Rgb<f32>,
+                                                { Rgb::<f32>::CHANNEL_COUNT as usize },
+                                        >(
+                                                buf, nh, kernel, support
+                                        ),
+                                        nw,
+                                        kernel,
+                                        support,
+                                ))
+                        }
+                        DynamicImage::ImageLuma8(ref buf) => {
+                                DynamicImage::ImageLuma8(horizontal_sample::<
+                                        Luma<f32>,
+                                        Luma<u8>,
+                                        { Luma::<u8>::CHANNEL_COUNT as usize },
+                                >(
+                                        &vertical_sample::<
+                                                Luma<u8>,
+                                                Luma<f32>,
+                                                { Luma::<f32>::CHANNEL_COUNT as usize },
+                                        >(
+                                                buf, nh, kernel, support
+                                        ),
+                                        nw,
+                                        kernel,
+                                        support,
+                                ))
+                        }
                         _ => unreachable!("{}", dev_err!("rayon-resize unprepared image")),
                 }
         }
-        fn vertical_sample<IP: Pixel<Subpixel = u8> + Sync, OP: Pixel<Subpixel = f32>, const CHANNEL_COUNT: usize>(
+        fn vertical_sample<IP, OP, const CHANNEL_COUNT: usize>(
                 image: &ImageBuffer<IP, Vec<u8>>,
                 new_height: u32,
-                kernel: &'static (dyn Fn(f32) -> f32 + Sync),
+                kernel: KernelFn,
                 support: f32,
-        ) -> ImageBuffer<OP, Vec<f32>> {
+        ) -> ImageBuffer<OP, Vec<f32>>
+        where
+                IP: Pixel<Subpixel = u8> + Sync,
+                OP: Pixel<Subpixel = f32>,
+        {
                 let (width, height) = image.dimensions();
                 let mut new_image = ImageBuffer::<OP, Vec<f32>>::new(width, new_height).into_vec();
                 let ratio = height as f32 / new_height as f32;
@@ -594,12 +631,17 @@ mod unstable_rayon {
                         .for_each_with(image, |image, (outy, row)| {
                                 let inputy = (outy as f32 + 0.5) * ratio;
                                 let left = (inputy - src_support).floor() as i64;
-                                let left = clamp(left, 0, <i64 as From<_>>::from(height) - 1) as u32;
+                                let left =
+                                        clamp(left, 0, <i64 as From<_>>::from(height) - 1) as u32;
                                 let right = (inputy + src_support).ceil() as i64;
-                                let right = clamp(right, <i64 as From<_>>::from(left) + 1, <i64 as From<_>>::from(height))
-                                        as u32;
+                                let right = clamp(
+                                        right,
+                                        <i64 as From<_>>::from(left) + 1,
+                                        <i64 as From<_>>::from(height),
+                                ) as u32;
                                 let inputy = inputy - 0.5;
-                                let mut weights = Vec::with_capacity(right.saturating_sub(left) as usize);
+                                let mut weights =
+                                        Vec::with_capacity(right.saturating_sub(left) as usize);
                                 let mut sum = 0.0;
                                 for i in left..right {
                                         let w = kernel((i as f32 - inputy) / sratio);
@@ -610,21 +652,28 @@ mod unstable_rayon {
                                 for x in 0..width {
                                         let row_index = x as usize * CHANNEL_COUNT;
                                         for (i, w) in weights.iter().enumerate() {
-                                                let p = image.get_pixel(x, left + i as u32).channels();
+                                                let p = image
+                                                        .get_pixel(x, left + i as u32)
+                                                        .channels();
                                                 for i in 0..CHANNEL_COUNT {
                                                         row[row_index + i] += p[i] as f32 * w;
                                                 }
                                         }
                                 }
                         });
-                ImageBuffer::from_vec(width, new_height, new_image).expect(&unexpected_err!("rayon-vsample"))
+                ImageBuffer::from_vec(width, new_height, new_image)
+                        .expect(&unexpected_err!("rayon-vsample"))
         }
-        fn horizontal_sample<IP: Pixel<Subpixel = f32> + Sync, OP: Pixel<Subpixel = u8>, const CHANNEL_COUNT: usize>(
+        fn horizontal_sample<IP, OP, const CHANNEL_COUNT: usize>(
                 image: &ImageBuffer<IP, Vec<f32>>,
                 new_width: u32,
-                kernel: &'static (dyn Fn(f32) -> f32 + Sync),
+                kernel: KernelFn,
                 support: f32,
-        ) -> ImageBuffer<OP, Vec<u8>> {
+        ) -> ImageBuffer<OP, Vec<u8>>
+        where
+                IP: Pixel<Subpixel = f32> + Sync,
+                OP: Pixel<Subpixel = u8>,
+        {
                 let (width, height) = image.dimensions();
                 // Axes: rows, columns, pixels
                 let mut new_image = unsafe {
@@ -650,7 +699,8 @@ mod unstable_rayon {
                                 let right = clamp(right, left as i64 + 1, width as i64) as u32;
                                 let inputx = inputx - 0.5;
                                 // Allocating new vector because we rebuild vector of weights for each column
-                                let mut weights = Vec::with_capacity(right.saturating_sub(left) as usize);
+                                let mut weights =
+                                        Vec::with_capacity(right.saturating_sub(left) as usize);
                                 let mut sum = 0.0;
                                 for i in left..right {
                                         let w = kernel((i as f32 - inputx) / sratio);
@@ -658,22 +708,186 @@ mod unstable_rayon {
                                         sum += w;
                                 }
                                 weights.iter_mut().for_each(|w| *w /= sum);
-                                for y in 0..height {
-                                        let mut t = [0.0; CHANNEL_COUNT];
-                                        for (i, w) in weights.iter().enumerate() {
-                                                let p = image.get_pixel(left + i as u32, y).channels();
-                                                for i in 0..CHANNEL_COUNT {
-                                                        t[i] += p[i] * w;
+                                col.axis_iter_mut(ndarray::Axis(0)).enumerate().for_each(
+                                        |(y, mut np)| {
+                                                let mut t = [0.0; CHANNEL_COUNT];
+                                                for (i, w) in weights.iter().enumerate() {
+                                                        let p = image
+                                                                .get_pixel(
+                                                                        left + i as u32,
+                                                                        y as u32,
+                                                                )
+                                                                .channels();
+                                                        for i in 0..CHANNEL_COUNT {
+                                                                t[i] += p[i] as f32 * w;
+                                                        }
                                                 }
-                                        }
-                                        col.index_axis_mut(ndarray::Axis(0), y as usize) // Get pixel at row[y]
-                                                .into_iter()
-                                                .zip(t.iter())
-                                                .for_each(|(p, &t)| {
-                                                        *p = clamp(t, min, max).round() as u8;
-                                                });
-                                }
+                                                for i in 0..CHANNEL_COUNT {
+                                                        np[i] = t[i].max(min).min(max).round()
+                                                                as u8;
+                                                }
+                                        },
+                                );
                         });
-                ImageBuffer::from_vec(new_width, height, new_image.into_raw_vec()).expect(&unexpected_err!("rayon-hsample"))
+                ImageBuffer::from_vec(new_width, height, new_image.into_raw_vec())
+                        .expect(&unexpected_err!("rayon-hsample"))
         }
+
+        // Give up and just use `ndarray`, they got it figured out
+
+        // /// a column of pixels
+        // #[derive(Debug)]
+        // struct ColumnMut<'a> {
+        //         /// Bytes between the items in the column
+        //         stride: usize,
+        //         /// Length of the items in the column
+        //         channels: usize,
+        //         /// Pointer to the current item in the column
+        //         cur: *mut u8,
+        //         /// One past the end of the column
+        //         end: *mut u8,
+        //         /// Number of items in the column
+        //         len: usize,
+        //         phantom: PhantomData<&'a mut u8>,
+        // }
+        // impl<'a> Iterator for ColumnMut<'a> {
+        //         type Item = &'a mut [u8];
+        //         fn next(&mut self) -> Option<Self::Item> {
+        //                 if self.len == 0 {
+        //                         None
+        //                 } else {
+        //                         let ptr = self.cur;
+        //                         self.cur = unsafe { self.cur.add(self.stride) };
+        //                         self.len -= 1;
+        //                         Some(unsafe { std::slice::from_raw_parts_mut(ptr, self.channels) })
+        //                 }
+        //         }
+        // }
+        // impl<'a> DoubleEndedIterator for ColumnMut<'a> {
+        //         fn next_back(&mut self) -> Option<Self::Item> {
+        //                 if self.len == 0 {
+        //                         None
+        //                 } else {
+        //                         self.end = unsafe { self.end.sub(self.stride) };
+        //                         self.len -= 1;
+        //                         Some(unsafe { std::slice::from_raw_parts_mut(self.end, self.channels) })
+        //                 }
+        //         }
+        // }
+        // impl<'a> ExactSizeIterator for ColumnMut<'a> {
+        //         fn len(&self) -> usize { self.len }
+        // }
+        // unsafe impl<'a> Send for ColumnMut<'a> {}
+        // unsafe impl<'a> Sync for ColumnMut<'a> {}
+        // /// A column-major array of pixels.
+        // #[derive(Debug)]
+        // struct ColumnsMut<'a> {
+        //         /// step between rows
+        //         /// stride = image width * channels
+        //         stride: usize,
+        //         /// number of channels
+        //         channels: usize,
+        //         /// pointer to the current column
+        //         cur: *mut u8,
+        //         /// one past the end of the columns
+        //         end: *mut u8,
+        //         /// number of columns
+        //         len: usize,
+        //         /// number of rows
+        //         rows_len: usize,
+        //         phantom: PhantomData<&'a mut u8>,
+        // }
+        // impl<'a> ColumnsMut<'a> {
+        //         fn split_at(self, index: usize) -> (Self, Self) {
+        //                 (
+        //                         Self {
+        //                                 end: unsafe { self.cur.add(self.stride * index) },
+        //                                 len: index,
+        //                                 phantom: PhantomData,
+        //                                 ..self
+        //                         },
+        //                         Self {
+        //                                 cur: unsafe { self.cur.add(self.stride * index) },
+        //                                 len: self.len - index,
+        //                                 phantom: PhantomData,
+        //                                 ..self
+        //                         },
+        //                 )
+        //         }
+        // }
+        // impl<'a> Iterator for ColumnsMut<'a> {
+        //         type Item = ColumnMut<'a>;
+        //         fn next(&mut self) -> Option<Self::Item> {
+        //                 if self.len == 0 {
+        //                         None
+        //                 } else {
+        //                         let ptr = self.cur;
+        //                         self.cur = unsafe { self.cur.add(self.channels) };
+        //                         self.len -= 1;
+        //                         Some(ColumnMut {
+        //                                 stride: self.stride,
+        //                                 channels: self.channels,
+        //                                 cur: ptr,
+        //                                 end: unsafe { ptr.add(self.stride * self.rows_len) },
+        //                                 len: self.rows_len,
+        //                                 phantom: PhantomData,
+        //                         })
+        //                 }
+        //         }
+        // }
+        // impl<'a> DoubleEndedIterator for ColumnsMut<'a> {
+        //         fn next_back(&mut self) -> Option<Self::Item> {
+        //                 if self.len == 0 {
+        //                         None
+        //                 } else {
+        //                         self.end = unsafe { self.end.sub(self.channels) };
+        //                         self.len -= 1;
+        //                         Some(ColumnMut {
+        //                                 stride: self.stride,
+        //                                 channels: self.channels,
+        //                                 cur: self.end,
+        //                                 end: unsafe { self.end.add(self.stride * self.rows_len) },
+        //                                 len: self.rows_len,
+        //                                 phantom: PhantomData,
+        //                         })
+        //                 }
+        //         }
+        // }
+        // impl<'a> ExactSizeIterator for ColumnsMut<'a> {
+        //         fn len(&self) -> usize { self.len }
+        // }
+        // unsafe impl<'a> Send for ColumnsMut<'a> {}
+        // unsafe impl<'a> Sync for ColumnsMut<'a> {}
+        // impl<'a> ParallelIterator for ColumnsMut<'a> {
+        //         type Item = ColumnMut<'a>;
+        //         fn drive_unindexed<C>(self, consumer: C) -> C::Result
+        //         where
+        //                 C: rayon::iter::plumbing::UnindexedConsumer<Self::Item>,
+        //         {
+        //                 rayon::iter::plumbing::bridge(self, consumer)
+        //         }
+        // }
+        // impl<'a> IndexedParallelIterator for ColumnsMut<'a> {
+        //         fn len(&self) -> usize { self.len }
+
+        //         fn drive<C: rayon::iter::plumbing::Consumer<Self::Item>>(self, consumer: C) -> C::Result {
+        //                 let split_index = self.len / 2;
+        //                 let (left, right) = self.split_at(split_index);
+        //                 let (left_consumer, right_consumer, reducer) = consumer.split_at(split_index);
+        //                 rayon::iter::plumbing::Reducer::reduce(
+        //                         reducer,
+        //                         rayon::iter::plumbing::bridge(left, left_consumer),
+        //                         rayon::iter::plumbing::bridge(right, right_consumer),
+        //                 )
+        //         }
+        //         fn with_producer<CB: rayon::iter::plumbing::ProducerCallback<Self::Item>>(self, callback: CB) -> CB::Output {
+        //                 callback.callback(self)
+        //         }
+        // }
+        // impl<'a> rayon::iter::plumbing::Producer for ColumnsMut<'a> {
+        //         type Item = ColumnMut<'a>;
+        //         type IntoIter = ColumnsMut<'a>;
+        //         fn into_iter(self) -> Self::IntoIter { self }
+        //         fn split_at(self, index: usize) -> (Self, Self) { self.split_at(index) }
+        // }
 }

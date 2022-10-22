@@ -29,7 +29,9 @@ pub const MAP_0_100_DIST: f32 = 584970.0 / 100.0;
 pub fn rgb_to_256(c: &[u8], ca: &ColorAttributes) -> u8 {
         let xyz = rgb_xyz_256(c);
         let luma = gray_to_256(luma(c));
-        if dist(c, &EIGHT_BIT_PALETTE[luma as usize]) + ca.luma_correct < dist(c, &EIGHT_BIT_PALETTE[xyz as usize]) {
+        if dist(c, &EIGHT_BIT_PALETTE[luma as usize]) + ca.luma_correct
+                < dist(c, &EIGHT_BIT_PALETTE[xyz as usize])
+        {
                 luma
         } else {
                 xyz
@@ -37,7 +39,9 @@ pub fn rgb_to_256(c: &[u8], ca: &ColorAttributes) -> u8 {
 }
 
 /// Get the luma of the given 24-bit color (sRGB -> Luma).
-pub fn luma(c: &[u8]) -> u8 { (((c[0] as u32 * 2126) + (c[1] as u32 * 7152) + (c[2] as u32 * 722)) / 10000) as u8 }
+pub fn luma(c: &[u8]) -> u8 {
+        (((c[0] as u32 * 2126) + (c[1] as u32 * 7152) + (c[2] as u32 * 722)) / 10000) as u8
+}
 
 /// Get the distance between two 24-bit colors.
 /// 0..=584970
@@ -156,10 +160,26 @@ pub static GRAY_TO_256: [u8; 256] = [
 ];
 
 pub trait AnsiPixel {
-        fn set_fg24(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()>;
-        fn set_bg24(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()>;
-        fn set_fg8(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()>;
-        fn set_bg8(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()>;
+        fn set_fg24(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()>;
+        fn set_bg24(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()>;
+        fn set_fg8(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()>;
+        fn set_bg8(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()>;
 }
 
 impl AnsiPixel for Rgb<u8> {
@@ -172,11 +192,19 @@ impl AnsiPixel for Rgb<u8> {
                 write!(buf, set_bg!(RGB), pixel[0], pixel[1], pixel[2])
         }
         #[inline]
-        fn set_fg8(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()> {
+        fn set_fg8(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()> {
                 write!(buf, set_fg!(256), rgb_to_256(pixel, attrs))
         }
         #[inline]
-        fn set_bg8(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()> {
+        fn set_bg8(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()> {
                 write!(buf, set_bg!(256), rgb_to_256(pixel, attrs))
         }
 }
@@ -212,28 +240,52 @@ pub trait AnsiColor {
         const RESERVE_ONE: usize;
         /// Expected or maximum size of an ansi fg and bg control sequence + a single byte character
         const RESERVE_CHAR: usize = (Self::RESERVE_ONE * 2) + 1;
-        fn set_fg<P: AnsiPixel>(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()>;
-        fn set_bg<P: AnsiPixel>(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()>;
+        fn set_fg<P: AnsiPixel>(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()>;
+        fn set_bg<P: AnsiPixel>(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()>;
 }
 impl AnsiColor for AnsiColor8 {
         const RESERVE_ONE: usize = 11;
         #[inline]
-        fn set_fg<P: AnsiPixel>(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()> {
+        fn set_fg<P: AnsiPixel>(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()> {
                 P::set_fg8(buf, pixel, attrs)
         }
         #[inline]
-        fn set_bg<P: AnsiPixel>(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()> {
+        fn set_bg<P: AnsiPixel>(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()> {
                 P::set_bg8(buf, pixel, attrs)
         }
 }
 impl AnsiColor for AnsiColor24 {
         const RESERVE_ONE: usize = 19;
         #[inline]
-        fn set_fg<P: AnsiPixel>(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()> {
+        fn set_fg<P: AnsiPixel>(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()> {
                 P::set_fg24(buf, pixel, attrs)
         }
         #[inline]
-        fn set_bg<P: AnsiPixel>(buf: &mut impl io::Write, pixel: &[u8], attrs: &ColorAttributes) -> io::Result<()> {
+        fn set_bg<P: AnsiPixel>(
+                buf: &mut impl io::Write,
+                pixel: &[u8],
+                attrs: &ColorAttributes,
+        ) -> io::Result<()> {
                 P::set_bg24(buf, pixel, attrs)
         }
 }
