@@ -13,9 +13,12 @@ use image::{self, imageops::FilterType};
 
 use std::path::PathBuf;
 
-pub type BoxResult<T> = ::std::result::Result<T, Box<dyn ::std::error::Error>>;
+mod errors;
+
 mod viuwa;
 use viuwa::*;
+
+pub type BoxResult<T> = ::std::result::Result<T, Box<dyn ::std::error::Error>>;
 
 const MAX_COLS: u16 = 8192;
 const MAX_ROWS: u16 = 4096;

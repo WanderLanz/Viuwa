@@ -1,4 +1,4 @@
-use crate::{Args, BoxResult};
+use crate::{dev_err, Args, BoxResult};
 
 use std::io::{self, stdout, StdoutLock, Write};
 #[cfg(target_family = "wasm")]
@@ -10,7 +10,7 @@ use image::{ImageBuffer, Luma, Pixel, Rgb};
 
 pub mod ansi;
 
-use ansi::{AnsiImageBuffer, TerminalImpl};
+use ansi::{AnsiImage, TerminalImpl};
 
 /// Static ref to resize function for convenience and cleaner code
 #[cfg(feature = "rayon-resizer")]
@@ -59,12 +59,6 @@ impl ColorType {
                         ColorType::Gray | ColorType::Gray256 => false,
                 }
         }
-        // pub fn is_8bit(&self) -> bool {
-        //         match self {
-        //                 ColorType::Color256 | ColorType::Gray256 => true,
-        //                 ColorType::Color | ColorType::Gray => false,
-        //         }
-        // }
         pub fn is_24bit(&self) -> bool {
                 match self {
                         ColorType::Color | ColorType::Gray => true,
@@ -81,7 +75,7 @@ impl ColorType {
 
 pub struct Viuwa<'a> {
         pub orig: DynamicImage,
-        pub buf: AnsiImageBuffer,
+        pub ansi: AnsiImage,
         pub size: (u16, u16),
         pub lock: StdoutLock<'a>,
         pub args: Args,
@@ -92,14 +86,14 @@ impl<'a> Viuwa<'a> {
         pub fn new(orig: DynamicImage, args: Args) -> BoxResult<Self> {
                 let mut lock = stdout().lock();
                 let size = lock.size(args.quiet)?;
-                let buf = AnsiImageBuffer::from(
+                let buf = AnsiImage::from(
                         RESIZE_FN(&orig, size.0 as u32, size.1 as u32 * 2, args.filter),
                         &args.color,
                         &ColorAttributes::new(args.luma_correct),
                 );
                 Ok(Self {
                         orig,
-                        buf,
+                        ansi: buf,
                         size,
                         lock,
                         args,
@@ -309,12 +303,13 @@ impl<'a> Viuwa<'a> {
         }
         /// Write the buffer to the terminal, and move the cursor to the bottom left
         fn _draw(&mut self) -> BoxResult<()> {
+                self.lock.clear_buffer()?;
                 self.lock.clear_screen()?;
-                let ox = (self.size.0 - self.buf.size.0) / 2;
-                let oy = (self.size.1 - self.buf.size.1) / 2;
-                for (y, line) in self.buf.buf.iter().enumerate() {
+                let ox = (self.size.0 - self.ansi.size().0) / 2;
+                let oy = (self.size.1 - self.ansi.size().1) / 2;
+                for (y, row) in self.ansi.rows().enumerate() {
                         self.lock.cursor_to(ox, oy + y as u16)?;
-                        self.lock.write_all(line.0.as_bytes())?;
+                        self.lock.write_all(row.as_slice())?;
                         self.lock.attr_reset()?;
                 }
                 self.lock.cursor_to(0, self.size.1)?;
@@ -374,7 +369,7 @@ impl<'a> Viuwa<'a> {
                         }
                         Ok(())
                 } else {
-                        Err("No strings to write".into())
+                        Err(dev_err!("0 args to _write_centerxy_align_all").into())
                 }
         }
         /// Cycle through filter types, and rebuild buffer
@@ -395,7 +390,7 @@ impl<'a> Viuwa<'a> {
         }
         /// Rebuild the buffer with the current image, filter, and format
         fn _rebuild_buf(&mut self) {
-                self.buf.replace_image(
+                self.ansi.replace_image(
                         RESIZE_FN(&self.orig, self.size.0 as u32, self.size.1 as u32 * 2, self.args.filter),
                         &self.args.color,
                         &ColorAttributes::new(self.args.luma_correct),
@@ -438,14 +433,14 @@ pub fn inline(orig: DynamicImage, args: Args) -> BoxResult<()> {
                 (Some(w), None) => (w, crate::MAX_ROWS),
                 (Some(w), Some(h)) => (w, h),
         };
-        let buf = AnsiImageBuffer::from(
+        let ansi = AnsiImage::from(
                 RESIZE_FN(&orig, size.0 as u32, size.1 as u32 * 2, args.filter),
                 &args.color,
                 &ColorAttributes::new(args.luma_correct),
         );
         let mut lock = stdout().lock();
-        for line in buf.buf.iter() {
-                lock.write_all(line.0.as_bytes())?;
+        for row in &ansi {
+                lock.write_all(row.as_slice())?;
                 lock.attr_reset()?;
                 lock.write_all(b"\n")?;
         }
@@ -457,6 +452,8 @@ pub fn inline(orig: DynamicImage, args: Args) -> BoxResult<()> {
 /// Parallelized [image] functions with [rayon], using [ndarray] when needed
 mod unstable_rayon {
         #![allow(non_upper_case_globals)]
+
+        use crate::unexpected_err;
 
         use super::*;
 
@@ -471,7 +468,6 @@ mod unstable_rayon {
                         a.sin() / a
                 }
         }
-
         #[inline]
         fn clamp<N>(a: N, min: N, max: N) -> N
         where
@@ -485,7 +481,6 @@ mod unstable_rayon {
                         a
                 }
         }
-
         const nearest_support: f32 = 0.0;
         fn nearest_kernel(_: f32) -> f32 { 1.0 }
         const triangle_support: f32 = 1.0;
@@ -519,7 +514,6 @@ mod unstable_rayon {
                         0.0
                 }
         }
-
         /// Resize an image to given size, aspect ratio preserving, same as [image] crate... except parallelized with [rayon] (and [ndarray] for column-major image mutations)
         pub fn resize(img: &DynamicImage, nw: u32, nh: u32, filter: FilterType) -> DynamicImage {
                 let (w, h) = image::GenericImageView::dimensions(img);
@@ -580,10 +574,9 @@ mod unstable_rayon {
                                 kernel,
                                 support,
                         )),
-                        _ => unreachable!(),
+                        _ => unreachable!("{}", dev_err!("rayon-resize unprepared image")),
                 }
         }
-
         fn vertical_sample<IP: Pixel<Subpixel = u8> + Sync, OP: Pixel<Subpixel = f32>, const CHANNEL_COUNT: usize>(
                 image: &ImageBuffer<IP, Vec<u8>>,
                 new_height: u32,
@@ -624,9 +617,8 @@ mod unstable_rayon {
                                         }
                                 }
                         });
-                ImageBuffer::from_vec(width, new_height, new_image).expect("Everything. Is. Fine. :VSRGB")
+                ImageBuffer::from_vec(width, new_height, new_image).expect(&unexpected_err!("rayon-vsample"))
         }
-
         fn horizontal_sample<IP: Pixel<Subpixel = f32> + Sync, OP: Pixel<Subpixel = u8>, const CHANNEL_COUNT: usize>(
                 image: &ImageBuffer<IP, Vec<f32>>,
                 new_width: u32,
@@ -682,6 +674,6 @@ mod unstable_rayon {
                                                 });
                                 }
                         });
-                ImageBuffer::from_vec(new_width, height, new_image.into_raw_vec()).expect("Everything. Is. Fine. :HSRGB")
+                ImageBuffer::from_vec(new_width, height, new_image.into_raw_vec()).expect(&unexpected_err!("rayon-hsample"))
         }
 }
