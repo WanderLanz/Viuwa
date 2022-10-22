@@ -127,7 +127,8 @@ fn main() -> BoxResult<()> {
         // wasi doesn't have universal support for async I/O
         let orig = image::open(&args.image)?;
         if !args.quiet {
-                if orig.width() > 1920 && orig.height() > 1080 {
+                // if image is larger than a 4k image, warn the user
+                if orig.width() > 3840 && orig.height() > 2160 {
                         eprintln!("WARNING: Large images may cause significant performance issues when changing filter type or resizing");
                 }
         }
