@@ -1,5 +1,4 @@
 # Viuwa
-
 [![crate](https://img.shields.io/crates/v/viuwa.svg?style=for-the-badge)](https://crates.io/crates/viuwa) <!-- [![crate all releases](https://img.shields.io/crates/d/viuwa?color=fe7d37&style=for-the-badge)](https://crates.io/crates/viuwa) -->
 [![github](https://img.shields.io/github/v/release/WanderLanz/Viuwa?include_prereleases&label=GITHUB&style=for-the-badge)](https://github.com/WanderLanz/Viuwa) <!-- [![github all releases](https://img.shields.io/github/downloads/WanderLanz/Viuwa/total?style=for-the-badge)](https://github.com/WanderLanz/Viuwa/releases) -->
 [![license](https://img.shields.io/crates/l/viuwa.svg?style=for-the-badge)](NOTICES.txt)
@@ -14,7 +13,7 @@ There are better tools such as [viu](https://github.com/atanunq/viu) or [timg](h
 
 Pull requests implementing different protocols are allowed as long as they don't break wasm32-wasi+ANSI compatibility.
 
-## Installation
+## ℹ️ Installation
 
 ```bash
 cargo install viuwa
@@ -30,9 +29,9 @@ git clone https://github.com/WanderLanz/Viuwa.git && cd Viuwa && cargo install -
 
 ### Features
 
-- `rayon`: Enables both parallel image resizing and conversions to ANSI. This is enabled by default.
+  - `rayon`: Enables both parallel image resizing and conversions to ANSI. This is enabled by default.
 
-## Usage
+## 🔧 Usage
 
 ### Windowed image viewing (e.g. Vim)
 
@@ -52,21 +51,7 @@ viuwa [image] --inline
 viuwa --help
 ```
 
-### Examples
-
-inlined w/ nearest filter
-
-![cli-f1](/img/lights-inline.png)
-
-tui w/ triangle filter
-
-![tui-f2](/img/lights-tui-triangle.png)
-
-tui help
-
-![tui-help](/img/viuwa-tui-help.png)
-
-## Configuration
+## ⚙️ Configuration
 
 ### Environment variables
 
@@ -81,24 +66,38 @@ With inline flag:
 - `VIUWA_WIDTH`: Set width of inlined ANSI image, else does nothing.
 - `VIUWA_HEIGHT`: Set height of inlined ANSI image, else does nothing.
 
-## Known Issues
+### 📸 Examples
+
+inlined w/ nearest filter
+
+![cli-f1](/img/lights-inline.png)
+
+tui w/ triangle filter
+
+![tui-f2](/img/lights-tui-triangle.png)
+
+tui help
+
+![tui-help](/img/viuwa-tui-help.png)
+
+## 💬 Known Issues
 
 - On wasm, ANSI raw mode sequences are commonly ignored, so you may need to press enter to send input to the program.
 - Some wasm runtimes may kill the program waiting for user input. May cause terminal to be left in a weird state.
 
-## License
+## 📜 License
 
 This project is licensed under
 [MIT](LICENSE-MIT.txt) or [Apache-2.0](LICENSE-APACHE.txt).
 
-## Contributing
+## 💡 Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## <a href="https://crates.io"><image alt="crates.io" src="/img/crates-io-favicon.ico.svg"/></a> Dependencies
 
-[![clap crate](https://img.shields.io/static/v1?label=📦&message=clap&color=B94700&style=flat)](https://crates.io/crates/clap)
-[![image crate](https://img.shields.io/static/v1?label=📦&message=image&color=B94700&style=flat)](https://crates.io/crates/image)
-[![rayon crate](https://img.shields.io/static/v1?label=📦&message=rayon&color=B94700&style=flat)](https://crates.io/crates/rayon)
-[![ndarray crate](https://img.shields.io/static/v1?label=📦&message=ndarray&color=B94700&style=flat)](https://crates.io/crates/ndarray)
-[![crossterm crate](https://img.shields.io/static/v1?label=📦&message=crossterm&color=B94700&style=flat)](https://crates.io/crates/crossterm)
+[![clap crate](https://img.shields.io/static/v1?label=📦&message=clap&color=B94700&style=flat-square)](https://crates.io/crates/clap)
+[![image crate](https://img.shields.io/static/v1?label=📦&message=image&color=B94700&style=flat-square)](https://crates.io/crates/image)
+[![rayon crate](https://img.shields.io/static/v1?label=📦&message=rayon&color=B94700&style=flat-square)](https://crates.io/crates/rayon)
+[![ndarray crate](https://img.shields.io/static/v1?label=📦&message=ndarray&color=B94700&style=flat-square)](https://crates.io/crates/ndarray)
+[![crossterm crate](https://img.shields.io/static/v1?label=📦&message=crossterm&color=B94700&style=flat-square)](https://crates.io/crates/crossterm)
