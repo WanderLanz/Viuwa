@@ -95,10 +95,10 @@ This project is licensed under
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Dependencies
+## <a href="https://crates.io"><image alt="crates.io" src="/img/crates-io-favicon.ico.svg"/></a> Dependencies
 
-- [![clap crate](https://img.shields.io/static/v1?label=crates.io&message=clap&color=B94700&logo=rust&style=flat)](https://crates.io/crates/clap)
-- [![image crate](https://img.shields.io/static/v1?label=crates.io&message=image&color=B94700&logo=rust&style=flat)](https://crates.io/crates/image)
-- [![rayon crate](https://img.shields.io/static/v1?label=crates.io&message=rayon&color=B94700&logo=rust&style=flat)](https://crates.io/crates/rayon)
-- [![ndarray crate](https://img.shields.io/static/v1?label=crates.io&message=ndarray&color=B94700&logo=rust&style=flat)](https://crates.io/crates/ndarray)
-- [![crossterm crate](https://img.shields.io/static/v1?label=crates.io&message=crossterm&color=B94700&logo=rust&style=flat)](https://crates.io/crates/crossterm)
+[![clap crate](https://img.shields.io/static/v1?label=📦&message=clap&color=B94700&style=flat)](https://crates.io/crates/clap)
+[![image crate](https://img.shields.io/static/v1?label=📦&message=image&color=B94700&style=flat)](https://crates.io/crates/image)
+[![rayon crate](https://img.shields.io/static/v1?label=📦&message=rayon&color=B94700&style=flat)](https://crates.io/crates/rayon)
+[![ndarray crate](https://img.shields.io/static/v1?label=📦&message=ndarray&color=B94700&style=flat)](https://crates.io/crates/ndarray)
+[![crossterm crate](https://img.shields.io/static/v1?label=📦&message=crossterm&color=B94700&style=flat)](https://crates.io/crates/crossterm)
