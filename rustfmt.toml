@@ -1,5 +1,6 @@
-max_width = 100
+# These are just my preferences, feel free to change them to your liking.
+max_width = 125
 fn_single_line = true
 empty_item_single_line = true
 struct_lit_single_line = true
-tab_spaces = 8
+tab_spaces = 4

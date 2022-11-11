@@ -30,9 +30,7 @@ git clone https://github.com/WanderLanz/Viuwa.git && cd Viuwa && cargo install -
 
 ### Features
 
-- `rayon`: Enables both `rayon-resizer` and `rayon-converter`. This is enabled by default.
-- `rayon-resizer`: Enables parallel image resizing.
-- `rayon-converter`: Enables parallel ANSI image generation.
+- `rayon`: Enables both parallel image resizing and conversions to ANSI. This is enabled by default.
 
 ## Usage
 
@@ -48,7 +46,7 @@ viuwa [image]
 viuwa [image] --inline
 ```
 
-### For more advanced usage, see the help page
+### For more advanced usage, see the help
 
 ```bash
 viuwa --help
@@ -86,7 +84,7 @@ With inline flag:
 ## Known Issues
 
 - On wasm, ANSI raw mode sequences are commonly ignored, so you may need to press enter to send input to the program.
-- Some wasm runtimes may kill the program in its windowed/tui mode. May cause terminal to be left in a weird state and may require restarting the terminal if terminal doesn't soft reset itself.
+- Some wasm runtimes may kill the program waiting for user input. May cause terminal to be left in a weird state.
 
 ## License
 

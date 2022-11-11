@@ -19,5 +19,5 @@ If you want to suggest enhancements, you can submit an issue, or you can submit 
 If you want to contribute code to the project, you can do so by following the guidelines below:
 
 - Fork the repository.
-- Send a pull request to the **main** branch (usually not recommended on github, but we don't particularily need to branch at the moment).
+- Send a pull request to the **main** branch.
 - We will review your pull request and merge it if it meets our criteria after testing.

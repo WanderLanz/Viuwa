@@ -1,9 +1,9 @@
 [package]
 name = "viuwa"
-version = "0.0.47"
+version = "0.0.48"
 edition = "2021"
 authors = ["Lance Warden"]
-description = "Yet another \"super simple\" cli/tui ANSI image viewer, targeting compatibility with wasm32-wasi."
+description = "Yet another \"super simple\" cli/tui ANSI image viewer, minimally compatibile with wasm32-wasi."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/WanderLanz/Viuwa"
 keywords = ["image-viewer", "ansi", "cli", "tui"]
@@ -11,18 +11,32 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 clap = { version = "4.0.*", features = ["derive", "env"] }
-image = "0.24.4"
+# Because we don't want rayon to muck about the runtime if we don't have the feature enabled
+image = { version = "0.24.4", default-features = false, features = [
+    "gif",
+    "jpeg",
+    "ico",
+    "png",
+    "pnm",
+    "tga",
+    "tiff",
+    "webp",
+    "bmp",
+    "hdr",
+    "dxt",
+    "dds",
+    "farbfeld",
+    "openexr",
+] }
 rayon = { version = "1.5.*", optional = true }
-ndarray = { version = "0.15.6", optional = true, features = ["rayon"] }
+ndarray = { version = "0.15.6", default-features = false, features = ["std"] }
 # base64 = { version = "0.13.*", optional = true }
 
 [target.'cfg(any(unix,windows))'.dependencies]
-crossterm = "0.25.0"
+crossterm = { version = "0.25.*", default-features = false }
 
 [features]
 default = ["rayon"]
-rayon = ["rayon-resizer", "rayon-converter"]
-rayon-resizer = ["dep:rayon", "dep:ndarray"]
-rayon-converter = ["dep:rayon"]
+rayon = ["dep:rayon", "ndarray/rayon", "image/jpeg_rayon"]
 # sixel = []
 # iterm = ["dep:base64"]
