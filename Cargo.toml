@@ -1,6 +1,6 @@
 [package]
 name = "viuwa"
-version = "0.0.50"
+version = "0.0.51"
 edition = "2021"
 authors = ["Lance Warden"]
 description = "Yet another \"super simple\" cli/tui ANSI image viewer, minimally compatibile with wasm32-wasi."
@@ -40,3 +40,8 @@ default = ["rayon"]
 rayon = ["dep:rayon", "ndarray/rayon", "image/jpeg_rayon"]
 # sixel = []
 # iterm = ["dep:base64"]
+
+# [profile.release]
+# lto = true
+# strip = true
+# codegen-units = 1

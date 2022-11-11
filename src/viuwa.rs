@@ -270,27 +270,27 @@ impl<'a> Viuwa<'a> {
                     self._draw()?;
                 }
                 b'!' => {
-                    self.resizer.set_filter(FilterType::Nearest);
+                    self.resizer.filter(FilterType::Nearest);
                     self._rebuild_buf();
                     self._draw()?;
                 }
                 b'@' => {
-                    self.resizer.set_filter(FilterType::Triangle);
+                    self.resizer.filter(FilterType::Triangle);
                     self._rebuild_buf();
                     self._draw()?;
                 }
                 b'#' => {
-                    self.resizer.set_filter(FilterType::CatmullRom);
+                    self.resizer.filter(FilterType::CatmullRom);
                     self._rebuild_buf();
                     self._draw()?;
                 }
                 b'$' => {
-                    self.resizer.set_filter(FilterType::Gaussian);
+                    self.resizer.filter(FilterType::Gaussian);
                     self._rebuild_buf();
                     self._draw()?;
                 }
                 b'%' => {
-                    self.resizer.set_filter(FilterType::Lanczos3);
+                    self.resizer.filter(FilterType::Lanczos3);
                     self._rebuild_buf();
                     self._draw()?;
                 }
