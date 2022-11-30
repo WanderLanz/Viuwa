@@ -1,22 +1,24 @@
 //! The main application as a struct so we don't have to pass around all the arguments
-use crate::{err_msg, Args, BoxResult};
-
 use std::io::{self, stdout, StdoutLock, Write};
 #[cfg(target_family = "wasm")]
 use std::io::{stdin, Read};
 
-use image::DynamicImage;
-use image::{ImageBuffer, Luma, Rgb};
+use image::{DynamicImage, ImageBuffer};
+
+use crate::{Args, Result};
 
 pub mod ansi;
 pub mod resizer;
 
 use ansi::{AnsiImage, TerminalImpl};
-use resizer::{FilterType, Resizer};
-
+use anyhow::anyhow;
 use ndarray::prelude::*;
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
+use resizer::{FilterType, Resizer};
+
+pub trait Pixel: ::image::Pixel<Subpixel = u8> + ansi::color::RawPixel {}
+impl<T: ::image::Pixel<Subpixel = u8> + ansi::color::RawPixel> Pixel for T {}
 
 /// Wrapper around possibly user-controlled color attributes
 #[derive(Debug, Clone, Copy)]
@@ -29,17 +31,20 @@ impl ColorAttributes {
     /// luma correct is 0..=100, 100 is the highest luma correct
     // distance threshold = (MAX_COLOR_DISTANCE / 100) * ((100 - luma_correct)^2 / 100)
     pub fn new(luma_correct: u32) -> Self {
-        Self {
-            luma_correct: (((100 - luma_correct).pow(2) / 100) as f32 * ansi::color::MAP_0_100_DIST) as u32,
-        }
+        Self { luma_correct: (((100 - luma_correct).pow(2) / 100) as f32 * ansi::color::MAP_0_100_DIST) as u32 }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(clap::ValueEnum, Debug, Clone, Copy, Default)]
 pub enum ColorType {
+    #[default]
+    #[clap(name = "truecolor")]
     Color,
+    #[clap(name = "256")]
     Color256,
+    #[clap(name = "gray")]
     Gray,
+    #[clap(name = "256gray")]
     Gray256,
 }
 
@@ -75,9 +80,9 @@ impl ColorType {
 //         pub filter: FilterType,
 // }
 
-pub struct Viuwa<'a> {
+pub struct Viuwa<'a, P: Pixel> {
     /// The image to display
-    pub resizer: Resizer,
+    pub resizer: Resizer<P>,
     /// The ANSI buffer
     pub ansi: AnsiImage,
     /// The terminal size in columns and rows
@@ -87,108 +92,46 @@ pub struct Viuwa<'a> {
     pub args: Args,
 }
 
-impl<'a> Viuwa<'a> {
+impl<'a, P: Pixel> Viuwa<'a, P> {
     /// Create a new viuwa instance
-    pub fn new(orig: DynamicImage, args: Args) -> BoxResult<Self> {
+    pub fn new(orig: ImageBuffer<P, Vec<u8>>, args: Args) -> Result<Self> {
+        crate::timer!("Viuwa::new");
         let mut lock = stdout().lock();
         let size = lock.size(args.quiet)?;
-        let resizer = if orig.color().has_color() {
-            Resizer::from_rgb(orig.into_rgb8(), &args.filter, (size.0 as u32, size.1 as u32 * 2))
-        } else {
-            Resizer::from_luma(orig.into_luma8(), &args.filter, (size.0 as u32, size.1 as u32 * 2))
-        };
-        let ansi = AnsiImage::from(resizer.resized(), &args.color, &ColorAttributes::new(args.luma_correct));
-        Ok(Self {
-            resizer,
-            ansi,
-            size,
-            lock,
-            args,
-        })
+        let resizer = Resizer::new(orig, &args.filter, (size.0 as u32, size.1 as u32 * 2));
+        let ansi = AnsiImage::new(resizer.resized(), &args.color, &ColorAttributes::new(args.luma_correct));
+        Ok(Self { resizer, ansi, size, lock, args })
     }
     // seperate spawns because of resize event
     /// Start viuwa app
     #[cfg(any(unix, windows))]
-    pub fn spawn(mut self) -> BoxResult<()> {
-        use crossterm::event::{Event, KeyCode, KeyEventKind};
+    pub fn spawn(mut self) -> Result<()> {
+        crate::timer!("Viuwa::spawn");
         self.lock.enable_raw_mode()?;
-        self.lock.write_all(
-            [
-                ansi::term::ENTER_ALT_SCREEN,
-                ansi::term::HIDE_CURSOR,
-                ansi::term::DISABLE_LINE_WRAP,
-                ansi::term::CLEAR_BUFFER,
-            ]
-            .concat()
-            .as_bytes(),
-        )?;
+        self.lock.enter_alt_screen()?;
+        self.lock.cursor_hide()?;
+        self.lock.disable_line_wrap()?;
         self.lock.flush()?;
         self._draw()?;
+        self._spawn_loop()?;
+        self.lock.enable_line_wrap()?;
+        self.lock.cursor_show()?;
+        self.lock.exit_alt_screen()?;
+        self.lock.disable_raw_mode()?;
+        self.lock.flush()?;
+        Ok(())
+    }
+    #[cfg(any(unix, windows))]
+    fn _spawn_loop(&mut self) -> Result<()> {
+        use crossterm::event::{Event, KeyCode, KeyEventKind};
         loop {
             match crossterm::event::read()? {
                 Event::Key(e) if e.kind == KeyEventKind::Press => match e.code {
                     KeyCode::Char('q') | KeyCode::Esc => break,
-                    KeyCode::Char('r') => {
-                        self._draw()?;
+                    KeyCode::Char(c) => {
+                        self._handle_keypress(c as u8)?;
                     }
-                    KeyCode::Char('h') => {
-                        self._help()?;
-                        self._draw()?;
-                    }
-                    KeyCode::Char('f') => {
-                        self._cycle_filter();
-                        self._draw()?;
-                    }
-                    KeyCode::Char('c') => {
-                        self._cycle_color();
-                        self._draw()?;
-                    }
-                    KeyCode::Char('1') => {
-                        self.args.color = ColorType::Color;
-                        self._rebuild_buf();
-                        self._draw()?;
-                    }
-                    KeyCode::Char('2') => {
-                        self.args.color = ColorType::Color256;
-                        self._rebuild_buf();
-                        self._draw()?;
-                    }
-                    KeyCode::Char('3') => {
-                        self.args.color = ColorType::Gray;
-                        self._rebuild_buf();
-                        self._draw()?;
-                    }
-                    KeyCode::Char('4') => {
-                        self.args.color = ColorType::Gray256;
-                        self._rebuild_buf();
-                        self._draw()?;
-                    }
-                    KeyCode::Char('!') => {
-                        self.resizer.filter(FilterType::Nearest);
-                        self._rebuild_buf();
-                        self._draw()?;
-                    }
-                    KeyCode::Char('@') => {
-                        self.resizer.filter(FilterType::Triangle);
-                        self._rebuild_buf();
-                        self._draw()?;
-                    }
-                    KeyCode::Char('#') => {
-                        self.resizer.filter(FilterType::CatmullRom);
-                        self._rebuild_buf();
-                        self._draw()?;
-                    }
-                    KeyCode::Char('$') => {
-                        self.resizer.filter(FilterType::Gaussian);
-                        self._rebuild_buf();
-                        self._draw()?;
-                    }
-                    KeyCode::Char('%') => {
-                        self.resizer.filter(FilterType::Lanczos3);
-                        self._rebuild_buf();
-                        self._draw()?;
-                    }
-                    _ => {}
+                    _ => (),
                 },
                 Event::Resize(w, h) => {
                     self.lock.clear()?;
@@ -199,136 +142,108 @@ impl<'a> Viuwa<'a> {
                 _ => (),
             }
         }
-        self.lock.write_all(
-            [
-                ansi::term::ENABLE_LINE_WRAP,
-                ansi::term::SHOW_CURSOR,
-                ansi::term::EXIT_ALT_SCREEN,
-            ]
-            .concat()
-            .as_bytes(),
-        )?;
-        self.lock.disable_raw_mode()?;
-        self.lock.flush()?;
         Ok(())
     }
-    /// Start viuwa app
     #[cfg(target_family = "wasm")]
-    pub fn spawn(mut self) -> BoxResult<()> {
-        self.lock.enable_raw_mode()?;
-        self.lock.write_all(
-            [
-                ansi::term::ENTER_ALT_SCREEN,
-                ansi::term::HIDE_CURSOR,
-                ansi::term::DISABLE_LINE_WRAP,
-            ]
-            .concat()
-            .as_bytes(),
-        )?;
-        self.lock.flush()?;
-        self._draw()?;
+    fn _spawn_loop(&mut self) -> Result<()> {
         let mut buf = [0; 1];
         loop {
             stdin().read_exact(&mut buf)?;
             match buf[0] {
                 b'q' => break,
-                b'r' => {
-                    let size = self.lock.size(self.args.quiet)?;
-                    self._handle_resize(size.0, size.1);
-                    self._draw()?;
+                _ => {
+                    self._handle_keypress(buf[0])?;
                 }
-                b'h' => {
-                    self._help()?;
-                    self._draw()?;
-                }
-                b'f' => {
-                    self._cycle_filter();
-                    self._draw()?;
-                }
-                b'c' => {
-                    self._cycle_color();
-                    self._draw()?;
-                }
-                b'1' => {
-                    self.args.color = ColorType::Color;
-                    self._rebuild_buf();
-                    self._draw()?;
-                }
-                b'2' => {
-                    self.args.color = ColorType::Color256;
-                    self._rebuild_buf();
-                    self._draw()?;
-                }
-                b'3' => {
-                    self.args.color = ColorType::Gray;
-                    self._rebuild_buf();
-                    self._draw()?;
-                }
-                b'4' => {
-                    self.args.color = ColorType::Gray256;
-                    self._rebuild_buf();
-                    self._draw()?;
-                }
-                b'!' => {
-                    self.resizer.filter(FilterType::Nearest);
-                    self._rebuild_buf();
-                    self._draw()?;
-                }
-                b'@' => {
-                    self.resizer.filter(FilterType::Triangle);
-                    self._rebuild_buf();
-                    self._draw()?;
-                }
-                b'#' => {
-                    self.resizer.filter(FilterType::CatmullRom);
-                    self._rebuild_buf();
-                    self._draw()?;
-                }
-                b'$' => {
-                    self.resizer.filter(FilterType::Gaussian);
-                    self._rebuild_buf();
-                    self._draw()?;
-                }
-                b'%' => {
-                    self.resizer.filter(FilterType::Lanczos3);
-                    self._rebuild_buf();
-                    self._draw()?;
-                }
-                _ => {}
             }
         }
-        self.lock.write_all(
-            [
-                ansi::term::ENABLE_LINE_WRAP,
-                ansi::term::SHOW_CURSOR,
-                ansi::term::EXIT_ALT_SCREEN,
-            ]
-            .concat()
-            .as_bytes(),
-        )?;
-        self.lock.disable_raw_mode()?;
-        self.lock.flush()?;
         Ok(())
     }
+    fn _handle_keypress(&mut self, b: u8) -> Result<()> {
+        match b {
+            b'r' => {}
+            b'h' => {
+                self._help()?;
+            }
+            b'f' => {
+                self._cycle_filter();
+            }
+            b'c' => {
+                self._cycle_color();
+            }
+            b'1' => {
+                self.args.color = ColorType::Color;
+                self._rebuild_buf();
+            }
+            b'2' => {
+                self.args.color = ColorType::Color256;
+                self._rebuild_buf();
+            }
+            b'3' => {
+                self.args.color = ColorType::Gray;
+                self._rebuild_buf();
+            }
+            b'4' => {
+                self.args.color = ColorType::Gray256;
+                self._rebuild_buf();
+            }
+            b'!' => {
+                self.resizer.filter(FilterType::from(0));
+                self._rebuild_buf();
+            }
+            b'@' => {
+                self.resizer.filter(FilterType::from(1));
+                self._rebuild_buf();
+            }
+            b'#' => {
+                self.resizer.filter(FilterType::from(2));
+                self._rebuild_buf();
+            }
+            b'$' => {
+                self.resizer.filter(FilterType::from(3));
+                self._rebuild_buf();
+            }
+            b'%' => {
+                self.resizer.filter(FilterType::from(4));
+                self._rebuild_buf();
+            }
+            b'^' => {
+                self.resizer.filter(FilterType::from(5));
+                self._rebuild_buf();
+            }
+            b'&' => {
+                self.resizer.filter(FilterType::from(6));
+                self._rebuild_buf();
+            }
+            _ => {
+                return Ok(());
+            }
+        };
+        self._draw()
+    }
     /// Write the buffer to the terminal, and move the cursor to the bottom left
-    fn _draw(&mut self) -> BoxResult<()> {
-        self.lock.clear()?;
-        let ox = (self.size.0 - self.ansi.size().0) / 2;
-        let oy = (self.size.1 - self.ansi.size().1) / 2;
-        for (y, row) in self.ansi.rows().enumerate() {
-            self.lock.cursor_to(ox, oy + y as u16)?;
-            self.lock.write_all(row.as_slice())?;
-            self.lock.attr_reset()?;
+    fn _draw(&mut self) -> Result<()> {
+        crate::timer!("Viuwa::_draw");
+        #[cfg(not(feature = "profiler"))]
+        {
+            self.lock.clear()?;
+            let ox = (self.size.0 - self.ansi.size().0) / 2;
+            let oy = (self.size.1 - self.ansi.size().1) / 2;
+            for (y, row) in self.ansi.rows().enumerate() {
+                self.lock.cursor_to(ox, oy + y as u16)?;
+                self.lock.write_all(row.as_slice())?;
+                self.lock.attr_reset()?;
+            }
+            self.lock.cursor_to(0, self.size.1)?;
+            self.lock.flush()?;
         }
-        self.lock.cursor_to(0, self.size.1)?;
-        self.lock.flush()?;
         Ok(())
     }
     /// clear screen, print help, and quit 'q'
-    fn _help(&mut self) -> BoxResult<()> {
+    fn _help(&mut self) -> Result<()> {
         self.lock.clear()?;
         self.lock.cursor_home()?;
         self._write_centerx(0, "Viuwa help:")?;
+        #[cfg(feature = "fir")]
         self._write_centerxy_align_all(
             &[
                 "[q]: quit",
@@ -341,10 +256,34 @@ impl<'a> Viuwa<'a> {
                 "[3]: set color to Gray",
                 "[4]: set color to 256Gray",
                 "[Shift + 1]: set filter to nearest",
-                "[Shift + 2]: set filter to triangle",
-                "[Shift + 3]: set filter to catmull rom",
-                "[Shift + 4]: set filter to gaussian",
-                "[Shift + 5]: set filter to lanczos3",
+                "[Shift + 2]: set filter to box",
+                "[Shift + 3]: set filter to triangle",
+                "[Shift + 4]: set filter to hamming",
+                "[Shift + 5]: set filter to catmull-rom",
+                "[Shift + 6]: set filter to mitchell-netravali",
+                "[Shift + 7]: set filter to lanczos3",
+            ]
+            .to_vec(),
+        )?;
+        #[cfg(not(feature = "fir"))]
+        self._write_centerxy_align_all(
+            &[
+                "[q]: quit",
+                "[r]: redraw",
+                "[h]: help",
+                "[c]: cycle color",
+                "[f]: cycle filter",
+                "[1]: set color to Truecolor",
+                "[2]: set color to 256",
+                "[3]: set color to Gray",
+                "[4]: set color to 256Gray",
+                "[Shift + 1]: set filter to nearest",
+                "[Shift + 2]: set filter to box",
+                "[Shift + 3]: set filter to triangle",
+                "[Shift + 4]: set filter to catmull-rom",
+                "[Shift + 5]: set filter to mitchell-netravali",
+                "[Shift + 6]: set filter to gaussian",
+                "[Shift + 7]: set filter to lanczos3",
             ]
             .to_vec(),
         )?;
@@ -367,7 +306,7 @@ impl<'a> Viuwa<'a> {
         Ok(())
     }
     /// print strings centered and aligned on the x axis and y axis
-    fn _write_centerxy_align_all(&mut self, s: &Vec<&str>) -> BoxResult<()> {
+    fn _write_centerxy_align_all(&mut self, s: &Vec<&str>) -> Result<()> {
         if let Some(max) = s.iter().map(|x| x.len()).max() {
             let ox = (self.size.0 - max as u16) / 2;
             let oy = (self.size.1 - s.len() as u16) / 2;
@@ -377,7 +316,7 @@ impl<'a> Viuwa<'a> {
             }
             Ok(())
         } else {
-            Err(err_msg!("0 args to _write_centerxy_align_all").into())
+            Err(anyhow!("0 args to _write_centerxy_align_all"))
         }
     }
     /// Cycle through filter types, and rebuild buffer
@@ -392,17 +331,14 @@ impl<'a> Viuwa<'a> {
     }
     /// Rebuild the buffer with the current image, filter, and format
     fn _rebuild_buf(&mut self) {
+        crate::timer!("rebuild_buf");
         self.resizer.resize(self.size.0 as u32, self.size.1 as u32 * 2);
-        self.ansi.replace_image(
-            self.resizer.resized(),
-            &self.args.color,
-            &ColorAttributes::new(self.args.luma_correct),
-        );
+        self.ansi.replace_image(self.resizer.resized(), &self.args.color, &ColorAttributes::new(self.args.luma_correct));
     }
 }
 
 #[cfg(target_family = "wasm")]
-fn wait_for_quit() -> BoxResult<()> {
+fn wait_for_quit() -> Result<()> {
     let mut buf = [0; 1];
     let mut stdin = stdin().lock();
     loop {
@@ -415,7 +351,7 @@ fn wait_for_quit() -> BoxResult<()> {
     Ok(())
 }
 #[cfg(any(windows, unix))]
-fn wait_for_quit() -> BoxResult<()> {
+fn wait_for_quit() -> Result<()> {
     loop {
         match crossterm::event::read()? {
             crossterm::event::Event::Key(crossterm::event::KeyEvent {
@@ -429,25 +365,50 @@ fn wait_for_quit() -> BoxResult<()> {
 }
 
 /// Print ANSI image to stdout without attempting to use alternate screen buffer or other fancy stuff
-pub fn inline(orig: DynamicImage, args: Args) -> BoxResult<()> {
+pub fn inlined(orig: DynamicImage, args: Args) -> Result<()> {
+    crate::timer!("viuwa::inlined");
     let size = match (args.width, args.height) {
         (None, None) => stdout().size(args.quiet)?,
         (None, Some(h)) => (crate::MAX_COLS, h),
         (Some(w), None) => (w, crate::MAX_ROWS),
         (Some(w), Some(h)) => (w, h),
     };
-    let resizer = if orig.color().has_color() {
-        Resizer::from_rgb(orig.into_rgb8(), &args.filter, (size.0 as u32, size.1 as u32 * 2))
+    if orig.color().has_color() {
+        let resizer = Resizer::new(orig.into_rgb8(), &args.filter, (size.0 as u32, size.1 as u32 * 2));
+        // resizer.resized().save(format!("nasa-{}x{}.png", size.0 as u32, size.1 as u32 * 2).as_str())?;
+        let ansi = AnsiImage::new(resizer.resized(), &args.color, &ColorAttributes::new(args.luma_correct));
+        #[cfg(not(feature = "profiler"))]
+        {
+            let mut lock = stdout().lock();
+            for row in &ansi {
+                lock.write_all(row.as_slice())?;
+                lock.attr_reset()?;
+                lock.write_all(b"\n")?;
+            }
+            lock.flush()?;
+        }
     } else {
-        Resizer::from_luma(orig.into_luma8(), &args.filter, (size.0 as u32, size.1 as u32 * 2))
-    };
-    let ansi = AnsiImage::from(resizer.resized(), &args.color, &ColorAttributes::new(args.luma_correct));
-    let mut lock = stdout().lock();
-    for row in &ansi {
-        lock.write_all(row.as_slice())?;
-        lock.attr_reset()?;
-        lock.write_all(b"\n")?;
+        let resizer = Resizer::new(orig.into_luma8(), &args.filter, (size.0 as u32, size.1 as u32 * 2));
+        let ansi = AnsiImage::new(resizer.resized(), &args.color, &ColorAttributes::new(args.luma_correct));
+        #[cfg(not(feature = "profiler"))]
+        {
+            let mut lock = stdout().lock();
+            for row in &ansi {
+                lock.write_all(row.as_slice())?;
+                lock.attr_reset()?;
+                lock.write_all(b"\n")?;
+            }
+            lock.flush()?;
+        }
     }
-    lock.flush()?;
     Ok(())
+}
+/// Create a new viuwa instance
+pub fn windowed<'a>(orig: DynamicImage, args: Args) -> Result<()> {
+    crate::timer!("Viuwa::windowed");
+    if orig.color().has_color() {
+        Viuwa::new(orig.into_rgb8(), args)?.spawn()
+    } else {
+        Viuwa::new(orig.into_luma8(), args)?.spawn()
+    }
 }

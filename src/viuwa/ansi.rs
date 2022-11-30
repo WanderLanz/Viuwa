@@ -1,32 +1,32 @@
 //! trying my best to make an pure ANSI module for all platforms...
 //!
 //! refs:
-//!  - vt100:                  
+//!  - vt100:
 //!     - https://vt100.net/docs/vt100-ug/contents.html
-//!  - fnky's gist:        
+//!  - fnky's gist:
 //!     - https://gist.github.com/fnky/458719343aabd01cfb17a3a4f7296797
-//!  - xterm:              
+//!  - xterm:
 //!     - https://www.xfree86.org/current/ctlseqs.html
 //!     - https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
-//!  - windows:            
+//!  - windows:
 //!     - https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
-//!  - linux:              
+//!  - linux:
 //!     - https://en.wikipedia.org/wiki/ANSI_escape_code
-//!  - iterm:              
+//!  - iterm:
 //!     - https://iterm2.com/documentation-escape-codes.html
 //!     - https://chromium.googlesource.com/apps/libapps/+/master/hterm/doc/ControlSequences.md#OSC-1337
-//!  - kitty:              
+//!  - kitty:
 //!     - https://sw.kovidgoyal.net/kitty/graphics-protocol.html
-//!  - alacritty:          
+//!  - alacritty:
 //!     - https://github.com/alacritty/alacritty/blob/master/docs/escape_support.md
-//!  - mintty:             
+//!  - mintty:
 //!     - https://github.com/mintty/mintty/wiki/CtrlSeqs
-//!  - sixel:              
+//!  - sixel:
 //!     - https://en.wikipedia.org/wiki/Sixel
 //!     - https://konfou.xyz/posts/sixel-for-terminal-graphics
-//!  - sixel spec:          
+//!  - sixel spec:
 //!     - https://vt100.net/docs/vt510-rm/sixel.html
-//!  
+//!
 //! for reference:
 //!  - ESC = escape = "\x1B"
 //!  - ST = string terminator = "\x1B\\"
@@ -40,18 +40,14 @@
 
 #![allow(dead_code)]
 
-use super::*;
-use image::{Luma, Pixel, Rgb};
-
 #[cfg(target_family = "wasm")]
 use std::io::{stdin, Read};
-use std::{io, marker::PhantomData};
 
-use crate::BoxResult;
+use color::{AnsiColor, RawPixel};
 
-use color::{AnsiColor, RawAnsiPixel};
-
-use super::{resizer::ResizerPixels, ColorAttributes, ColorType};
+use self::color::PixelWriter;
+use super::{ColorAttributes, ColorType, *};
+use crate::Result;
 
 macro_rules! esc {
         ($( $l:expr ),*) => { concat!('\x1B', $( $l ),*) };
@@ -84,15 +80,12 @@ impl Coord {
     // fn new(x: u16, y: u16) -> Self { Self { x, y } }
     // fn as_report(&self) -> String { format!("{};{}", self.y, self.x) }
     /// e.g. "1;2" -> Coord { x: 2, y: 1 }
-    fn try_from_report(s: &str) -> BoxResult<Self> {
+    fn try_from_report(s: &str) -> Result<Self> {
         let mut iter = s.split(';');
         if let (Some(y), Some(x)) = (iter.next(), iter.next()) {
-            Ok(Self {
-                x: x.parse()?,
-                y: y.parse()?,
-            })
+            Ok(Self { x: x.parse()?, y: y.parse()? })
         } else {
-            Err("invalid coord".into())
+            Err(anyhow!("Invalid cursor position report: {}", s))
         }
     }
 }
@@ -152,10 +145,7 @@ pub mod cursor {
 // const REPORT_WINDOW_TITLE: &str = csi!("21t");
 
 /// Add terminal ANSI writes to a impl Write
-pub trait TerminalImpl
-where
-    Self: io::Write + Sized,
-{
+pub trait TerminalImpl: io::Write + Sized {
     #[inline]
     fn clear(&mut self) -> io::Result<()> { self.clear_buffer().and_then(|_| self.clear_screen()) }
     #[inline]
@@ -208,8 +198,8 @@ where
     #[inline]
     fn size(&mut self, _: bool) -> io::Result<(u16, u16)> { ::crossterm::terminal::size() }
     /// Attempt to read the terminal size in characters using only ANSI escape sequences
-    ///   
-    /// It is not guaranteed to work, although more universal than a direct x-term style ANSI window size request "\x1B[18t".  
+    ///
+    /// It is not guaranteed to work, although more universal than a direct x-term style ANSI window size request "\x1B[18t".
     /// Works best in raw alternate screen mode.
     /// relies on the user to press enter because we cannot read stdout.
     /// WARNING: this is a blocking call
@@ -246,11 +236,7 @@ where
             }
         }
         if !quiet {
-            eprintln!(
-                "Failed to parse terminal size report, defaulting to {}x{}",
-                crate::DEFAULT_COLS,
-                crate::DEFAULT_ROWS
-            );
+            eprintln!("Failed to parse terminal size report, defaulting to {}x{}", crate::DEFAULT_COLS, crate::DEFAULT_ROWS);
         }
         Ok((crate::DEFAULT_COLS, crate::DEFAULT_ROWS))
     }
@@ -291,21 +277,37 @@ impl AnsiRow {
     #[inline(always)]
     pub fn reserve(&mut self, additional: usize) { self.0.reserve(additional) }
     #[inline(always)]
+    pub fn with_capacity(capacity: usize) -> Self { Self(Vec::with_capacity(capacity)) }
+    #[inline(always)]
     pub fn clear(&mut self) { self.0.clear() }
+    #[inline(always)]
+    pub fn reserve_color<C: AnsiColor>(&mut self, additional: usize) {
+        self.0.reserve(additional * <C::Writer as color::ColorWriter>::RESERVE_SIZE)
+    }
     #[inline]
-    pub fn new(capacity: usize) -> Self { Self(Vec::with_capacity(capacity)) }
+    pub fn with_capacity_color<C: AnsiColor>(capacity: usize) -> Self {
+        Self(Vec::with_capacity(capacity * <C::Writer as color::ColorWriter>::RESERVE_SIZE))
+    }
     #[inline]
-    pub fn extend_fgs_bgs<P: RawAnsiPixel, C: AnsiColor>(
+    pub fn extend_fgs_bgs<P: RawPixel, C: AnsiColor>(
         &mut self,
         fgs: ArrayView2<u8>,
         bgs: ArrayView2<u8>,
         attrs: &ColorAttributes,
     ) {
-        self.0.extend(RowConverter::ansi_fgs_bgs::<P, C>(&fgs, &bgs, attrs))
+        // unsafe { *(fg.as_ptr() as *const P::Repr) } *should* be safe to do as long as we ensure that the array is the correct size
+        fgs.outer_iter().zip(bgs.outer_iter()).for_each(|(fg, bg)| {
+            PixelWriter::fg::<P, C>(&mut self.0, unsafe { *(fg.as_ptr() as *const P::Repr) }, attrs);
+            PixelWriter::bg::<P, C>(&mut self.0, unsafe { *(bg.as_ptr() as *const P::Repr) }, attrs);
+            self.0.extend(crate::UPPER_HALF_BLOCK.as_bytes());
+        });
     }
     #[inline]
-    pub fn extend_fgs<P: RawAnsiPixel, C: AnsiColor>(&mut self, fgs: ArrayView2<u8>, attrs: &ColorAttributes) {
-        self.0.extend(RowConverter::ansi_fgs::<P, C>(&fgs, attrs))
+    pub fn extend_fgs<P: RawPixel, C: AnsiColor>(&mut self, fgs: ArrayView2<u8>, attrs: &ColorAttributes) {
+        fgs.outer_iter().for_each(|fg| {
+            PixelWriter::fg::<P, C>(&mut self.0, unsafe { *(fg.as_ptr() as *const P::Repr) }, attrs);
+            self.0.extend(crate::UPPER_HALF_BLOCK.as_bytes());
+        });
     }
     #[inline]
     pub fn as_slice(&self) -> &[u8] { &self.0 }
@@ -313,89 +315,79 @@ impl AnsiRow {
 
 /// An ansi image, 2 rows of pixels per row of ansi
 /// "ratchet" memory buffer, so that we minimize memory allocations, because we *should* be relatively memory efficient
-// NOTE: We could use a 1D Vec<u8> instead of a 2D Vec<AnsiRow>,
-// but then we would have to do *a lot* of extra work to parallelize and avoid re-allocations
+// NOTE: A 2D Vec<AnsiRow> is necessary to avoid extreme complexity and manually handling our Vec lengths and such, and it saves some memory too
 #[derive(Debug, Clone)]
 pub struct AnsiImage {
     buf: Vec<AnsiRow>,
     size: (u16, u16),
 }
+
+macro_rules! match_color_as_C {
+    ($col: expr, $f: block) => {
+        match $col {
+            ColorType::Color256 => {
+                type C = color::Color8;
+                $f
+            }
+            ColorType::Color => {
+                type C = color::Color24;
+                $f
+            }
+            ColorType::Gray256 => {
+                type C = color::Gray8;
+                $f
+            }
+            ColorType::Gray => {
+                type C = color::Gray24;
+                $f
+            }
+        }
+    };
+}
+
 impl AnsiImage {
     /// Create a new AnsiImageBuffer from a given image and color type and attributes.
-    pub fn from(resized: &ResizerPixels, color_type: &ColorType, color_attrs: &ColorAttributes) -> Self {
-        let size = Self::_get_size_from(resized.dimensions());
-        let mut buf = Vec::with_capacity(size.1 as usize);
-        if color_type.is_24bit() {
-            buf.resize_with(size.1 as usize, || AnsiRow::new(size.0 as usize * color::RESERVE_24));
-        } else {
-            buf.resize_with(size.1 as usize, || AnsiRow::new(size.0 as usize * color::RESERVE_8));
-        }
+    pub fn new<P: Pixel>(img: &ImageBuffer<P, Vec<u8>>, color_type: &ColorType, color_attrs: &ColorAttributes) -> Self {
+        crate::timer!("AnsiImage::new");
+        let size = Self::_get_size_from(img.dimensions());
+        let buf = Vec::with_capacity(size.1 as usize);
         let mut ret = Self { buf, size };
-        match resized {
-            ResizerPixels::Rgb(img) => {
-                type P = Rgb<u8>;
-                match color_type {
-                    ColorType::Color256 => ret._fill::<P, color::Color8>(img, color_attrs),
-                    ColorType::Color => ret._fill::<P, color::Color24>(img, color_attrs),
-                    ColorType::Gray256 => ret._fill::<P, color::Gray8>(img, color_attrs),
-                    ColorType::Gray => ret._fill::<P, color::Gray24>(img, color_attrs),
-                }
-            }
-            ResizerPixels::Luma(img) => {
-                type P = Luma<u8>;
-                match color_type {
-                    ColorType::Color256 => ret._fill::<P, color::Color8>(img, color_attrs),
-                    ColorType::Color => ret._fill::<P, color::Color24>(img, color_attrs),
-                    ColorType::Gray256 => ret._fill::<P, color::Gray8>(img, color_attrs),
-                    ColorType::Gray => ret._fill::<P, color::Gray24>(img, color_attrs),
-                }
-            }
-            ResizerPixels::None => panic!(crate::err_msg!("Cannot create image with None")),
-        };
+        match_color_as_C!(color_type, {
+            let reserve = size.0 as usize * <<C as AnsiColor>::Writer as color::ColorWriter>::RESERVE_SIZE;
+            ret.buf.resize_with(size.1 as usize, || AnsiRow::with_capacity(reserve));
+            ret._fill::<P, C>(img, color_attrs);
+        });
         ret
     }
     /// Replace image in buffer with new image, assumes image is resized to fit.
-    pub fn replace_image(&mut self, resized: &ResizerPixels, color_type: &ColorType, color_attrs: &ColorAttributes) {
-        self.size = Self::_get_size_from(resized.dimensions());
-        match resized {
-            ResizerPixels::Rgb(img) => {
-                type P = Rgb<u8>;
-                self._pour(color_type);
-                match color_type {
-                    ColorType::Color256 => self._fill::<P, color::Color8>(img, color_attrs),
-                    ColorType::Color => self._fill::<P, color::Color24>(img, color_attrs),
-                    ColorType::Gray256 => self._fill::<P, color::Gray8>(img, color_attrs),
-                    ColorType::Gray => self._fill::<P, color::Gray24>(img, color_attrs),
-                }
-            }
-            ResizerPixels::Luma(img) => {
-                type P = Luma<u8>;
-                self._pour(color_type);
-                match color_type {
-                    ColorType::Color256 => self._fill::<P, color::Color8>(img, color_attrs),
-                    ColorType::Color => self._fill::<P, color::Color24>(img, color_attrs),
-                    ColorType::Gray256 => self._fill::<P, color::Gray8>(img, color_attrs),
-                    ColorType::Gray => self._fill::<P, color::Gray24>(img, color_attrs),
-                }
-            }
-            ResizerPixels::None => panic!("Cannot replace image with None"),
-        };
+    pub fn replace_image<P: Pixel>(
+        &mut self,
+        img: &ImageBuffer<P, Vec<u8>>,
+        color_type: &ColorType,
+        color_attrs: &ColorAttributes,
+    ) {
+        crate::timer!("AnsiImage::replace_image");
+        self.size = Self::_get_size_from(img.dimensions());
+        match_color_as_C!(color_type, {
+            self._pour::<C>();
+            self._fill::<P, C>(img, color_attrs);
+        });
     }
     #[inline]
     pub fn size(&self) -> &(u16, u16) { &self.size }
     #[inline]
-    pub fn rows(&self) -> AnsiRows { AnsiRows { buf: self, row: 0 } }
+    pub fn rows(&self) -> core::slice::Iter<AnsiRow> {
+        unsafe { core::slice::from_raw_parts(self.buf.as_ptr(), self.size.1 as usize) }.iter()
+    }
     // No reason to expose this.
-    fn rows_mut(&mut self) -> AnsiRowsMut { AnsiRowsMut::new(self) }
+    fn rows_mut(&mut self) -> core::slice::IterMut<AnsiRow> {
+        unsafe { core::slice::from_raw_parts_mut(self.buf.as_mut_ptr(), self.size.1 as usize) }.iter_mut()
+    }
     /// Clear each row within size and reserve more space as needed.
-    fn _pour(&mut self, color_type: &ColorType) {
+    fn _pour<C: AnsiColor>(&mut self) {
         // clear and reserve rows already initialized within size
         let lines = self.size.1 as usize;
-        let res = if color_type.is_24bit() {
-            self.size.0 as usize * color::RESERVE_24
-        } else {
-            self.size.0 as usize * color::RESERVE_8
-        };
+        let res = self.size.0 as usize * <C::Writer as color::ColorWriter>::RESERVE_SIZE;
         self.buf.iter_mut().take(lines).for_each(|s| {
             s.clear();
             s.reserve(res);
@@ -403,23 +395,19 @@ impl AnsiImage {
         // fill uninitialized rows within size
         let uninit = lines.saturating_sub(self.buf.len());
         self.buf.reserve(uninit);
-        self.buf.extend(std::iter::repeat_with(|| AnsiRow::new(res)).take(uninit));
+        self.buf.extend(std::iter::repeat_with(|| AnsiRow::with_capacity(res)).take(uninit));
     }
     /// Write rows of an image as ANSI colors and half block characters, 2 rows of image pixels per row of ansi,
     /// assumes buf is already cleared
     #[cfg(feature = "rayon")]
-    fn _fill<P, C>(&mut self, img: &image::ImageBuffer<P, Vec<P::Subpixel>>, attrs: &ColorAttributes)
-    where
-        P: Pixel<Subpixel = u8> + RawAnsiPixel,
-        C: AnsiColor,
-    {
+    fn _fill<P: Pixel, C: AnsiColor>(&mut self, img: &image::ImageBuffer<P, Vec<u8>>, attrs: &ColorAttributes) {
         let (w, h) = img.dimensions();
         self.buf
             .par_iter_mut()
             .take(self.size.1 as usize)
             .zip(
-                ArrayView3::from_shape([h as usize, w as usize, P::CHANNEL_COUNT as usize], img)
-                    .expect(crate::err_msg!("AnsiImage::_fill: invalid shape"))
+                ArrayView3::from_shape([h as usize, w as usize, P::CHANNELS], img)
+                    .expect(concat!(module_path!(), "AnsiImage::_fill: invalid shape"))
                     .axis_chunks_iter(Axis(0), 2)
                     .into_par_iter(),
             )
@@ -433,14 +421,10 @@ impl AnsiImage {
             });
     }
     #[cfg(not(feature = "rayon"))]
-    fn _fill<P, C>(&mut self, img: &image::ImageBuffer<P, Vec<P::Subpixel>>, attrs: &ColorAttributes)
-    where
-        P: Pixel<Subpixel = u8> + RawAnsiPixel,
-        C: AnsiColor,
-    {
+    fn _fill<P: Pixel, C: AnsiColor>(&mut self, img: &image::ImageBuffer<P, Vec<u8>>, attrs: &ColorAttributes) {
         let (w, h) = img.dimensions();
-        let rows = ArrayView3::from_shape([h as usize, w as usize, P::CHANNEL_COUNT as usize], img)
-            .expect(crate::err_msg!("AnsiImage::_fill: invalid shape"));
+        let rows = ArrayView3::from_shape([h as usize, w as usize, P::CHANNELS], img)
+            .expect(concat!(module_path!(), "AnsiImage::_fill: invalid shape"));
         let mut rows = rows.outer_iter();
         ::std::iter::repeat_with(move || (rows.next(), rows.next()))
             .take(self.size.1 as usize)
@@ -458,87 +442,7 @@ impl AnsiImage {
 
 impl<'a> IntoIterator for &'a AnsiImage {
     type Item = &'a AnsiRow;
-    type IntoIter = AnsiRows<'a>;
+    type IntoIter = core::slice::Iter<'a, AnsiRow>;
     #[inline]
     fn into_iter(self) -> Self::IntoIter { self.rows() }
-}
-
-/// Iterator over rows of an AnsiImage
-pub struct AnsiRows<'a> {
-    buf: &'a AnsiImage,
-    row: usize,
-}
-
-impl<'a> Iterator for AnsiRows<'a> {
-    type Item = &'a AnsiRow;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.row < self.buf.size.1 as usize {
-            self.row += 1;
-            Some(&self.buf.buf[self.row - 1])
-        } else {
-            None
-        }
-    }
-}
-
-/// Iterator over mut rows of an AnsiImage
-pub struct AnsiRowsMut<'a> {
-    rows: usize,
-    row: usize,
-    ptr: *mut AnsiRow,
-    phantom: PhantomData<&'a mut AnsiRow>,
-}
-
-impl<'a> AnsiRowsMut<'a> {
-    fn new(buf: &'a mut AnsiImage) -> Self {
-        Self {
-            rows: buf.size.1 as usize,
-            ptr: buf.buf.as_mut_ptr(),
-            phantom: PhantomData,
-            row: 0,
-        }
-    }
-}
-
-impl<'a> Iterator for AnsiRowsMut<'a> {
-    type Item = &'a mut AnsiRow;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.row < self.rows {
-            let i = self.row;
-            self.row += 1;
-            unsafe { Some(&mut *self.ptr.add(i)) }
-        } else {
-            None
-        }
-    }
-}
-
-pub struct RowConverter;
-impl RowConverter {
-    #[inline]
-    pub fn ansi_fgs_bgs<'a, P: RawAnsiPixel + 'a, C: AnsiColor + 'a>(
-        fgs: &'a ArrayView2<u8>,
-        bgs: &'a ArrayView2<u8>,
-        attrs: &'a ColorAttributes,
-    ) -> impl Iterator<Item = &'static u8> + 'a {
-        fgs.outer_iter().zip(bgs.outer_iter()).flat_map(|(fg, bg)| {
-            color::PixelConverter::fg::<P, C>(unsafe { *(fg.as_ptr() as *const P::Repr) }, attrs)
-                .chain(color::PixelConverter::bg::<P, C>(
-                    unsafe { *(bg.as_ptr() as *const P::Repr) },
-                    attrs,
-                ))
-                .chain(crate::UPPER_HALF_BLOCK.as_bytes().iter())
-        })
-    }
-    /// When the image is not a multiple of 2 in height, the last row is only filled with foreground colors
-    #[inline]
-    pub fn ansi_fgs<'a, P: RawAnsiPixel + 'a, C: AnsiColor + 'a>(
-        fgs: &'a ArrayView2<u8>,
-        attrs: &'a ColorAttributes,
-    ) -> impl Iterator<Item = &'static u8> + 'a {
-        fgs.outer_iter().flat_map(move |fg| {
-            color::PixelConverter::fg::<P, C>(unsafe { *(fg.as_ptr() as *const P::Repr) }, attrs)
-                .chain(crate::UPPER_HALF_BLOCK.as_bytes().iter())
-        })
-    }
 }

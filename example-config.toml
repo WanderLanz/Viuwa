@@ -1,0 +1,4 @@
+filter = "catmull"
+color = "256gray"
+quiet = true
+inline = true
