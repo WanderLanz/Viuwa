@@ -98,6 +98,7 @@ mod filter {
     pub static FILTER_NEAREST: Filter = Filter { kernel: point_kernel, support: 0. };
     pub static FILTER_BOX: Filter = Filter { kernel: box_kernel, support: 0.5 };
     pub static FILTER_TRIANGLE: Filter = Filter { kernel: triangle_kernel, support: 1. };
+    pub static FILTER_HAMMING: Filter = Filter { kernel: hamming_kernel, support: 1. };
     pub static FILTER_CATMULL_ROM: Filter = Filter { kernel: catmull_rom_kernel, support: 2. };
     pub static FILTER_MITCHELL: Filter = Filter { kernel: mitchell_netravali_kernel, support: 2. };
     pub static FILTER_GAUSSIAN: Filter = Filter { kernel: gaussian_kernel, support: 3. };
@@ -114,6 +115,7 @@ pub enum FilterType {
     Nearest,
     Box,
     Triangle,
+    Hamming,
     Catmull,
     Mitchell,
     Gaussian,
@@ -141,6 +143,7 @@ impl FilterType {
             Nearest => &FILTER_NEAREST,
             Box => &FILTER_BOX,
             Triangle => &FILTER_TRIANGLE,
+            Hamming => &FILTER_HAMMING,
             Catmull => &FILTER_CATMULL_ROM,
             Mitchell => &FILTER_MITCHELL,
             Gaussian => &FILTER_GAUSSIAN,
@@ -152,7 +155,8 @@ impl FilterType {
         match self {
             Nearest => Box,
             Box => Triangle,
-            Triangle => Catmull,
+            Triangle => Hamming,
+            Hamming => Catmull,
             Catmull => Mitchell,
             Mitchell => Gaussian,
             Gaussian => Lanczos,
@@ -167,10 +171,11 @@ impl From<u8> for FilterType {
             0 => Nearest,
             1 => Box,
             2 => Triangle,
-            3 => Catmull,
-            4 => Mitchell,
-            5 => Gaussian,
-            6 => Lanczos,
+            3 => Hamming,
+            4 => Catmull,
+            5 => Mitchell,
+            6 => Gaussian,
+            7 => Lanczos,
             _ => Nearest,
         }
     }

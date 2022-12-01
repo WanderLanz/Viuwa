@@ -6,7 +6,7 @@ use image::{self, GenericImageView};
 
 mod macros;
 mod viuwa;
-use anyhow::{anyhow, bail, Context, Result};
+pub use anyhow::{anyhow, bail, Context, Result};
 pub use macros::*;
 use viuwa::{resizer::FilterType, *};
 
@@ -14,10 +14,10 @@ use viuwa::{resizer::FilterType, *};
 /// This is a heuristic, and is not guaranteed to be accurate.
 const IMAGE_SIZE_THRESHOLD: u32 = 3840 * 2160; // 4k
 /// A reasonable maximum width for the terminal.
-/// There *should* be noone using a terminal with a width of 1000+ characters... what a horrifying experience.
+/// There *should* be noone using a terminal with a width of 1000+ characters?
 const MAX_COLS: u16 = 8192;
 /// A reasonable maximum height for the terminal.
-/// There *should* be noone using a terminal with a height of 1000+ characters... what a horrifying experience.
+/// There *should* be noone using a terminal with a height of 1000+ characters?
 const MAX_ROWS: u16 = 4096;
 /// A reasonable default width for the terminal. This is used when the terminal width cannot be determined.
 #[cfg(target_family = "wasm")]
@@ -36,25 +36,33 @@ const UPPER_HALF_BLOCK: &str = "\u{2580}";
         disable_help_flag = true,
 )]
 pub struct Args {
-    #[arg(short = 'H', long = "help", help = "Prints help information", action = clap::ArgAction::Help)]
+    /// Prints help information
+    #[arg(short = 'H', long = "help", action = clap::ArgAction::Help)]
     help: Option<bool>,
-    #[arg(short = '?', help = "Prints help information", hide = true, action = clap::ArgAction::Help)]
+    /// Prints help information
+    #[arg(short = '?', hide = true, action = clap::ArgAction::Help)]
     special_help: Option<bool>,
-    #[arg(short, long, help = "Suppresses all warnings and messages")]
+    /// Suppresses all warnings and messages
+    #[arg(short, long)]
     quiet: bool,
+    /// Manually provide the path to the config.toml file
     #[cfg(feature = "config")]
-    #[arg(long, help = "Manually provide the path to the config.toml file", value_name = "FILE", value_hint = clap::ValueHint::FilePath, value_parser = parse_file_path)]
+    #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath, value_parser = parse_file_path)]
     config: Option<PathBuf>,
-    #[arg(help = "Path of the image to display", required = true, value_name = "FILE", value_hint = clap::ValueHint::FilePath, value_parser = parse_file_path)]
+    /// Path of the image to display
+    #[arg(required = true, value_name = "FILE", value_hint = clap::ValueHint::FilePath, value_parser = parse_file_path)]
     image: PathBuf,
-    #[arg(short, long, default_value_t = FilterType::Nearest, help = "The filter used for resizing the image", value_enum)]
+    /// The filter used for resizing the image
+    #[arg(short, long, default_value_t = FilterType::Nearest, value_enum, ignore_case = true)]
     filter: FilterType,
-    #[arg(short, long, default_value_t = ColorType::Color, help = "The ANSI color format used to display the image", value_enum)]
+    /// The ANSI color format used to display the image
+    #[arg(short, long, default_value_t = ColorType::Color, value_enum, ignore_case = true)]
     color: ColorType,
-    #[arg(short, long, help = "Display the image inline", env = "VIUWA_INLINE")]
+    /// Display the image inline
+    #[arg(short, long, env = "VIUWA_INLINE")]
     inline: bool,
+    /// The width of the displayed image
     #[arg(
-        help = "The width of the displayed image",
         short,
         long,
         value_name = "WIDTH",
@@ -62,8 +70,8 @@ pub struct Args {
         value_parser = value_parser!(u16).range(1..MAX_COLS as i64)
     )]
     width: Option<u16>,
+    /// The height of the displayed image
     #[arg(
-        help = "The height of the displayed image",
         short,
         long,
         value_name = "HEIGHT",
@@ -71,12 +79,12 @@ pub struct Args {
         value_parser = value_parser!(u16).range(1..MAX_ROWS as i64)
     )]
     height: Option<u16>,
+    /// Luma correction for 256 color mode
     #[arg(
         name = "luma-correct",
         short,
         long = "luma-correct",
         default_value = "100",
-        help = "Luma correction for 256 color mode",
         value_parser = value_parser!(u32).range(0..=100),
     )]
     luma_correct: u32,
@@ -112,29 +120,6 @@ impl Args {
     ) -> (Self, Vec<String>) {
         use clap::parser::ValueSource;
         use toml::value::*;
-        macro_rules! value_type_name {
-            (String) => {
-                "string"
-            };
-            (Integer) => {
-                "integer"
-            };
-            (Float) => {
-                "float"
-            };
-            (Boolean) => {
-                "boolean"
-            };
-            (Datetime) => {
-                "datetime"
-            };
-            (Array) => {
-                "array"
-            };
-            (Table) => {
-                "table"
-            };
-        }
         let mut errs: Vec<String> = Vec::new();
         macro_rules! err {
             ($l:literal$(,$a:expr)*) => {
@@ -144,17 +129,17 @@ impl Args {
         macro_rules! _get {
             (if table.$name:ident is $t:ident then $e:expr) => {
                 if let Some($name) = table.get(stringify!($name)) {
-                    debug!("Args:try_merge_matches_and_toml: found {} in toml", stringify!($name));
+                    debug!("Args:try_merge_matches_and_toml: {} in config.toml", stringify!($name));
                     if let Value::$t($name) = $name {
                         $e;
                     } else {
-                        err!("{} must be {} type", stringify!($name), value_type_name!($t));
+                        err!("{} must be {} type", stringify!($name), stringify!($t).to_ascii_lowercase());
                     }
                 }
             };
             (if $name:ident.source is $t:ident then $e:expr) => {
                 if let Some(ValueSource::$t) = arg_matches.value_source(stringify!($name)) {
-                    debug!("Args:try_merge_matches_and_toml: config.toml source {}: {}", stringify!($name), stringify!($t));
+                    debug!("Args:try_merge_matches_and_toml: {}.source={}", stringify!($name), stringify!($t));
                     $e;
                 }
             };
@@ -169,19 +154,22 @@ impl Args {
             };
         }
         macro_rules! get {
-            ($name:ident, $t:ident) => {
-                _get!(if table.$name is $t then _get!($name));
-            };
-            ($name:ident, $t:ident, $p:expr) => {
-                _get!(if table.$name is $t then _get!($name by $p));
+            ($name:ident, $t:ident$(, $p:expr)?) => {
+                _get!(if table.$name is $t then _get!($name$( by $p)?));
             };
         }
+        #[inline]
         fn enum_from_str<T: ValueEnum>(s: &str) -> Result<T, String> {
-            fn val_to_str<T: ValueEnum>(val: &T) -> String { val.to_possible_value().unwrap().get_name().to_string() }
             if let Ok(v) = T::from_str(s, true) {
                 Ok(v)
             } else {
-                Err(format!("must be one of: {:#?}", T::value_variants().into_iter().map(val_to_str).collect::<Vec<_>>()))
+                Err(format!(
+                    "must be one of: {:?}",
+                    T::value_variants()
+                        .into_iter()
+                        .map(|v| v.to_possible_value().unwrap().get_name().to_string())
+                        .collect::<Vec<_>>()
+                ))
             }
         }
         get!(quiet, Boolean);

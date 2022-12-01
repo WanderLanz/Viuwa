@@ -1,6 +1,5 @@
 //! Uses the same algorithms as the `image` crate, but with optional parallelism and completely avoiding memory allocations
 //! (might have been optimized out before, but we make it explicit).
-use anyhow::Context;
 #[cfg(feature = "fir")]
 use fast_image_resize as fir;
 

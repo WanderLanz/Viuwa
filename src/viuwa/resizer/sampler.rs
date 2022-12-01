@@ -307,7 +307,7 @@ impl<'a, P: Pixel> Sampler<'a, P> {
             });
     }
     /// vertical-first sampling (row buffer and pre-computed horizontal weights)
-    pub fn sample_vertical_first(mut self, tmp_px: &mut [f32]) {
+    pub fn sample_vertical_first(mut self, _tpx: &mut [f32]) {
         crate::timer!("Sampler::sample_vertical_first");
         self.fill_hwgts_buf();
         for (outy, dst_off) in (0..self.dst.height).zip((0_usize..).step_by(self.dst.row_len)) {
@@ -319,14 +319,14 @@ impl<'a, P: Pixel> Sampler<'a, P> {
                 .zip(self.hwgts.chunks_exact_mut(self.max_span.x))
                 .zip(self.dst.data[dst_off..dst_off + self.dst.row_len].chunks_exact_mut(P::CHANNELS))
             {
-                tmp_px.fill(0.);
+                _tpx.fill(0.);
                 let weights = &mut weights[..*clen];
                 for (buf_px, coef) in self.buf[*buf_off..].chunks_exact(P::CHANNELS).zip(weights.iter()) {
-                    for (d, s) in tmp_px.iter_mut().zip(buf_px.iter()) {
+                    for (d, s) in _tpx.iter_mut().zip(buf_px.iter()) {
                         *d += *s * coef;
                     }
                 }
-                for (d, s) in dst_px.iter_mut().zip(tmp_px.iter()) {
+                for (d, s) in dst_px.iter_mut().zip(_tpx.iter()) {
                     *d = s.round().clamp(u8::MIN as f32, u8::MAX as f32) as u8;
                 }
             }
@@ -340,18 +340,18 @@ impl<'a, P: Pixel> Sampler<'a, P> {
                     let mut tmp_px_max = [0_f32; 4];
                     let tmp_px = &mut tmp_px_max[..P::CHANNELS];
                     for (buf_px, coef) in self.buf[*buf_off..].chunks_exact(P::CHANNELS).zip(weights.iter()) {
-                        for (d, s) in tmp_px.iter_mut().zip(buf_px.iter()) {
+                        for (d, s) in _tpx.iter_mut().zip(buf_px.iter()) {
                             *d += *s * coef;
                         }
                     }
-                    for (d, s) in dst_px.iter_mut().zip(tmp_px.iter()) {
+                    for (d, s) in dst_px.iter_mut().zip(_tpx.iter()) {
                         *d = s.round().clamp(u8::MIN as f32, u8::MAX as f32) as u8;
                     }
                 });
         }
     }
     /// horizontal-first sampling (column buffer and pre-computed vertical weights)
-    pub fn sample_horizontal_first(mut self, tmp_px: &mut [f32]) {
+    pub fn sample_horizontal_first(mut self, _tpx: &mut [f32]) {
         crate::timer!("Sampler::sample_horizontal_first");
         self.fill_vwgts_buf();
         for (outx, dst_off) in (0..self.dst.width).zip((0_usize..).step_by(P::CHANNELS)) {
@@ -364,14 +364,14 @@ impl<'a, P: Pixel> Sampler<'a, P> {
                 .zip((dst_off..).step_by(self.dst.row_len))
             {
                 let dst_px = &mut self.dst.data[dst_off..dst_off + P::CHANNELS];
-                tmp_px.fill(0.);
+                _tpx.fill(0.);
                 let weights = &mut weights[..*clen];
                 for (buf_px, coef) in self.buf[*buf_off..].chunks_exact(P::CHANNELS).zip(weights.iter()) {
-                    for (d, s) in tmp_px.iter_mut().zip(buf_px.iter()) {
+                    for (d, s) in _tpx.iter_mut().zip(buf_px.iter()) {
                         *d += *s * coef;
                     }
                 }
-                for (d, s) in dst_px.iter_mut().zip(tmp_px.iter()) {
+                for (d, s) in dst_px.iter_mut().zip(_tpx.iter()) {
                     *d = s.round().clamp(u8::MIN as f32, u8::MAX as f32) as u8;
                 }
             }
@@ -385,11 +385,11 @@ impl<'a, P: Pixel> Sampler<'a, P> {
                     let mut tmp_px_max = [0_f32; 4];
                     let tmp_px = &mut tmp_px_max[..P::CHANNELS];
                     for (buf_px, coef) in self.buf[*buf_off..].chunks_exact(P::CHANNELS).zip(weights.iter()) {
-                        for (d, s) in tmp_px.iter_mut().zip(buf_px.iter()) {
+                        for (d, s) in _tpx.iter_mut().zip(buf_px.iter()) {
                             *d += *s * coef;
                         }
                     }
-                    for (d, s) in dst_px.iter_mut().zip(tmp_px.iter()) {
+                    for (d, s) in dst_px.iter_mut().zip(_tpx.iter()) {
                         *d = s.round().clamp(u8::MIN as f32, u8::MAX as f32) as u8;
                     }
                 });

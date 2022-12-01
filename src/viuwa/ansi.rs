@@ -26,6 +26,8 @@
 //!     - https://konfou.xyz/posts/sixel-for-terminal-graphics
 //!  - sixel spec:
 //!     - https://vt100.net/docs/vt510-rm/sixel.html
+//!  - 256 colors:
+//!    - https://robotmoon.com/256-colors
 //!
 //! for reference:
 //!  - ESC = escape = "\x1B"
@@ -147,7 +149,7 @@ pub mod cursor {
 /// Add terminal ANSI writes to a impl Write
 pub trait TerminalImpl: io::Write + Sized {
     #[inline]
-    fn clear(&mut self) -> io::Result<()> { self.clear_buffer().and_then(|_| self.clear_screen()) }
+    fn clear(&mut self) -> io::Result<()> { self.clear_screen().and_then(|_| self.clear_buffer()) }
     #[inline]
     fn clear_buffer(&mut self) -> io::Result<()> { self.write_all(term::CLEAR_BUFFER.as_bytes()) }
     #[inline]

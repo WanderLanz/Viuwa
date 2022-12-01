@@ -14,14 +14,21 @@ macro_rules! debug {
 #[macro_export]
 macro_rules! error {
     ($l:literal$(,$a:expr)*) => {
-        eprintln!(concat!("ERROR: ", $l)$(,$a)*);
+        eprintln!(concat!("[\x1b[38;5;196mERROR\x1b[0m] ", $l)$(,$a)*);
     };
 }
 
 #[macro_export]
 macro_rules! warning {
     ($l:literal$(,$a:expr)*) => {
-        eprintln!(concat!("WARNING: ", $l)$(,$a)*);
+        eprintln!(concat!("[\x1b[38;5;208mWARNING\x1b[0m] ", $l)$(,$a)*);
+    };
+}
+
+#[macro_export]
+macro_rules! info {
+    ($l:literal$(,$a:expr)*) => {
+        eprintln!(concat!("[\x1b[38;5;27mINFO\x1b[0m] ", $l)$(,$a)*);
     };
 }
 

@@ -3,6 +3,7 @@ use std::io::{self, stdout, StdoutLock, Write};
 #[cfg(target_family = "wasm")]
 use std::io::{stdin, Read};
 
+use clap::ValueEnum;
 use image::{DynamicImage, ImageBuffer};
 
 use crate::{Args, Result};
@@ -38,13 +39,13 @@ impl ColorAttributes {
 #[derive(clap::ValueEnum, Debug, Clone, Copy, Default)]
 pub enum ColorType {
     #[default]
-    #[clap(name = "truecolor")]
+    #[value(name = "truecolor")]
     Color,
-    #[clap(name = "256")]
+    #[value(name = "256")]
     Color256,
-    #[clap(name = "gray")]
+    #[value(name = "gray")]
     Gray,
-    #[clap(name = "256gray")]
+    #[value(name = "256gray")]
     Gray256,
 }
 
@@ -118,41 +119,47 @@ impl<'a, P: Pixel> Viuwa<'a, P> {
         self.lock.cursor_show()?;
         self.lock.exit_alt_screen()?;
         self.lock.disable_raw_mode()?;
+        self.lock.soft_reset()?;
         self.lock.flush()?;
         Ok(())
     }
-    #[cfg(any(unix, windows))]
     fn _spawn_loop(&mut self) -> Result<()> {
-        use crossterm::event::{Event, KeyCode, KeyEventKind};
-        loop {
-            match crossterm::event::read()? {
-                Event::Key(e) if e.kind == KeyEventKind::Press => match e.code {
-                    KeyCode::Char('q') | KeyCode::Esc => break,
-                    KeyCode::Char(c) => {
-                        self._handle_keypress(c as u8)?;
+        #[cfg(not(target_family = "wasm"))]
+        {
+            use crossterm::event::{Event, KeyCode, KeyEventKind};
+            loop {
+                match crossterm::event::read()? {
+                    Event::Key(e) if e.kind == KeyEventKind::Press => match e.code {
+                        KeyCode::Char('q') | KeyCode::Esc => break,
+                        KeyCode::Char(c) => {
+                            if let Err(_) = self._handle_keypress(c as u8) {
+                                break;
+                            }
+                        }
+                        _ => (),
+                    },
+                    Event::Resize(w, h) => {
+                        self.lock.clear()?;
+                        self.lock.flush()?;
+                        self._handle_resize(w, h);
+                        self._draw()?;
                     }
                     _ => (),
-                },
-                Event::Resize(w, h) => {
-                    self.lock.clear()?;
-                    self.lock.flush()?;
-                    self._handle_resize(w, h);
-                    self._draw()?;
                 }
-                _ => (),
             }
         }
-        Ok(())
-    }
-    #[cfg(target_family = "wasm")]
-    fn _spawn_loop(&mut self) -> Result<()> {
-        let mut buf = [0; 1];
-        loop {
-            stdin().read_exact(&mut buf)?;
-            match buf[0] {
-                b'q' => break,
-                _ => {
-                    self._handle_keypress(buf[0])?;
+        #[cfg(target_family = "wasm")]
+        {
+            let mut buf = [0; 1];
+            loop {
+                stdin().read_exact(&mut buf)?;
+                match buf[0] {
+                    b'q' => break,
+                    _ => {
+                        if let Err(_) = self._handle_keypress(buf[0]) {
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -161,7 +168,7 @@ impl<'a, P: Pixel> Viuwa<'a, P> {
     fn _handle_keypress(&mut self, b: u8) -> Result<()> {
         match b {
             b'r' => {}
-            b'h' => {
+            b'h' | b'?' => {
                 self._help()?;
             }
             b'f' => {
@@ -214,28 +221,91 @@ impl<'a, P: Pixel> Viuwa<'a, P> {
                 self.resizer.filter(FilterType::from(6));
                 self._rebuild_buf();
             }
+            b'*' => {
+                self.resizer.filter(FilterType::from(7));
+                self._rebuild_buf();
+            }
+            b'(' => {
+                self.resizer.filter(FilterType::from(8));
+                self._rebuild_buf();
+            }
+            b')' => {
+                self.resizer.filter(FilterType::from(9));
+                self._rebuild_buf();
+            }
+            b':' => {
+                self._handle_command()?;
+                self._rebuild_buf();
+            }
             _ => {
                 return Ok(());
             }
         };
         self._draw()
     }
+    fn _handle_command(&mut self) -> Result<()> {
+        self.lock.cursor_to(0, self.size.1 - 1)?;
+        self.lock.clear_line()?;
+        self.lock.cursor_show()?;
+        write!(self.lock, ":")?;
+        self.lock.disable_raw_mode()?;
+        self.lock.flush()?;
+        let mut buf = String::new();
+        std::io::stdin().read_line(&mut buf)?;
+        let mut args = buf.split_whitespace();
+        let Some(cmd) = args.next() else {
+            return Ok(());
+        };
+        match cmd {
+            "filter" | "f" => {
+                if let Some(f) = args.next() {
+                    if let Ok(f) = FilterType::from_str(f, true) {
+                        self.resizer.filter(f);
+                    }
+                }
+            }
+            "color" | "c" => {
+                if let Some(c) = args.next() {
+                    if let Ok(c) = ColorType::from_str(c, true) {
+                        self.args.color = c;
+                    }
+                }
+            }
+            "luma_correct" | "l" => {
+                if let Some(l) = args.next() {
+                    if let Ok(l) = l.parse::<u32>() {
+                        if l < 256 {
+                            self.args.luma_correct = l;
+                        }
+                    }
+                }
+            }
+            "help" | "?" => {
+                self._help()?;
+            }
+            "quit" | "q" => {
+                return Err(anyhow!("quit"));
+            }
+            _ => (),
+        }
+        self.lock.cursor_hide()?;
+        self.lock.enable_raw_mode()?;
+        self.lock.flush()?;
+        Ok(())
+    }
     /// Write the buffer to the terminal, and move the cursor to the bottom left
     fn _draw(&mut self) -> Result<()> {
         crate::timer!("Viuwa::_draw");
-        #[cfg(not(feature = "profiler"))]
-        {
-            self.lock.clear()?;
-            let ox = (self.size.0 - self.ansi.size().0) / 2;
-            let oy = (self.size.1 - self.ansi.size().1) / 2;
-            for (y, row) in self.ansi.rows().enumerate() {
-                self.lock.cursor_to(ox, oy + y as u16)?;
-                self.lock.write_all(row.as_slice())?;
-                self.lock.attr_reset()?;
-            }
-            self.lock.cursor_to(0, self.size.1)?;
-            self.lock.flush()?;
+        self.lock.clear()?;
+        let offx = (self.size.0 - self.ansi.size().0) / 2;
+        let offy = (self.size.1 - self.ansi.size().1) / 2;
+        for (y, row) in self.ansi.rows().enumerate() {
+            self.lock.cursor_to(offx, offy + y as u16)?;
+            self.lock.write_all(row.as_slice())?;
+            self.lock.attr_reset()?;
         }
+        self.lock.cursor_to(0, self.size.1 - 1)?;
+        self.lock.flush()?;
         Ok(())
     }
     /// clear screen, print help, and quit 'q'
@@ -280,10 +350,11 @@ impl<'a, P: Pixel> Viuwa<'a, P> {
                 "[Shift + 1]: set filter to nearest",
                 "[Shift + 2]: set filter to box",
                 "[Shift + 3]: set filter to triangle",
-                "[Shift + 4]: set filter to catmull-rom",
-                "[Shift + 5]: set filter to mitchell-netravali",
-                "[Shift + 6]: set filter to gaussian",
-                "[Shift + 7]: set filter to lanczos3",
+                "[Shift + 4]: set filter to hamming",
+                "[Shift + 5]: set filter to catmull-rom",
+                "[Shift + 6]: set filter to mitchell-netravali",
+                "[Shift + 7]: set filter to gaussian",
+                "[Shift + 8]: set filter to lanczos3",
             ]
             .to_vec(),
         )?;
@@ -373,34 +444,21 @@ pub fn inlined(orig: DynamicImage, args: Args) -> Result<()> {
         (Some(w), None) => (w, crate::MAX_ROWS),
         (Some(w), Some(h)) => (w, h),
     };
+    let ansi;
     if orig.color().has_color() {
         let resizer = Resizer::new(orig.into_rgb8(), &args.filter, (size.0 as u32, size.1 as u32 * 2));
-        // resizer.resized().save(format!("nasa-{}x{}.png", size.0 as u32, size.1 as u32 * 2).as_str())?;
-        let ansi = AnsiImage::new(resizer.resized(), &args.color, &ColorAttributes::new(args.luma_correct));
-        #[cfg(not(feature = "profiler"))]
-        {
-            let mut lock = stdout().lock();
-            for row in &ansi {
-                lock.write_all(row.as_slice())?;
-                lock.attr_reset()?;
-                lock.write_all(b"\n")?;
-            }
-            lock.flush()?;
-        }
+        ansi = AnsiImage::new(resizer.resized(), &args.color, &ColorAttributes::new(args.luma_correct));
     } else {
         let resizer = Resizer::new(orig.into_luma8(), &args.filter, (size.0 as u32, size.1 as u32 * 2));
-        let ansi = AnsiImage::new(resizer.resized(), &args.color, &ColorAttributes::new(args.luma_correct));
-        #[cfg(not(feature = "profiler"))]
-        {
-            let mut lock = stdout().lock();
-            for row in &ansi {
-                lock.write_all(row.as_slice())?;
-                lock.attr_reset()?;
-                lock.write_all(b"\n")?;
-            }
-            lock.flush()?;
-        }
+        ansi = AnsiImage::new(resizer.resized(), &args.color, &ColorAttributes::new(args.luma_correct));
     }
+    let mut lock = stdout().lock();
+    for row in &ansi {
+        lock.write_all(row.as_slice())?;
+        lock.attr_reset()?;
+        lock.write_all(b"\n")?;
+    }
+    lock.flush()?;
     Ok(())
 }
 /// Create a new viuwa instance
