@@ -102,7 +102,7 @@ impl<P: Pixel> Resizer<P> {
     pub fn resized(&self) -> &ImageBuffer<P, Vec<u8>> { &self.resized }
     /// Resize the image to the given size, preserving the aspect ratio
     pub fn resize(&mut self, nw: u32, nh: u32) {
-        crate::timer!("Resizer::resize");
+        trace!("Resizer::resize");
         let (nw, nh) = bounded_size(self.orig.dimensions(), (nw, nh));
         if self.size == (nw, nh) && self.last_filter == self.filter {
             return;
@@ -113,12 +113,16 @@ impl<P: Pixel> Resizer<P> {
         if self.orig.dimensions() == self.size {
             #[allow(invalid_value)]
             // Image is very small and fits within screen, just copy it
-            r.resize(self.orig.len(), crate::uninit!());
+            r.resize(self.orig.len(), uninit!());
             r.copy_from_slice(&self.orig);
-            let _ = self.insert_vec(r);
+            if let Err(_) = self.insert_vec(r) {
+                panic!("Resizer::resize: Buffer has run out of space");
+            };
         } else {
-            r.resize((P::CHANNELS as u32 * nw * nh) as usize, 0_u8);
-            let _ = self.insert_vec(r);
+            r.resize((P::CHANNELS as u32 * nw * nh) as usize, uninit!());
+            if let Err(_) = self.insert_vec(r) {
+                panic!("Resizer::resize: Buffer has run out of space");
+            };
             // Always resize both vertically and horizontally because we preserve aspect ratio (nw < w, nh < h)
             #[cfg(not(feature = "fir"))]
             {
@@ -134,128 +138,3 @@ impl<P: Pixel> Resizer<P> {
         }
     }
 }
-// #[cfg(not(feature = "fir"))]
-// impl<P: Pixel> Resizer<P> {
-// fn vsample(&mut self) {
-//     let channels = self.channels;
-//     let nh = self.size.1;
-//     let (w, h) = self.osize;
-//     let row_stride = channels * w as usize;
-//     let filter = self.filter.filter();
-
-//     let ratio = h as f32 / nh as f32;
-//     let sratio = ratio.max(1.);
-//     let src_support = filter.support * sratio;
-
-//     // pre allocate all the weights
-//     let max_span = src_support.ceil() as usize * 2 + 1;
-//     let wgs_len = max_span * nh as usize;
-//     let mut wgs: Vec<(usize, f32)> = Vec::with_capacity(wgs_len);
-//     unsafe { wgs.set_len(wgs_len) };
-//     let wgs = wgs.as_slice();
-//     let wgs_ptr = wgs.as_ptr() as usize;
-
-//     ndarray::ArrayViewMut3::<f32>::from_shape([nh as usize, w as usize, channels], &mut self.vert)
-//         .expect(concat!(module_path!(), "Resizer::vsample: invalid shape"))
-//         .outer_iter_mut()
-//         .into_par_iter()
-//         .enumerate()
-//         .for_each_with(&self.orig, |orig, (outy, mut row)| {
-//             let inputy = (outy as f32 + 0.5) * ratio;
-//             let left = ((inputy - src_support).floor() as i64).clamp(0, (h - 1) as i64) as u32;
-//             let right = ((inputy + src_support).ceil() as i64).clamp((left + 1) as i64, h as i64) as u32;
-//             let inputy = inputy - 0.5;
-//             let weights_left = outy * max_span;
-//             let weights_right = weights_left + (right - left) as usize;
-//             let weights = unsafe {
-//                 std::slice::from_raw_parts_mut(wgs_ptr as *mut (usize, f32), wgs_len)
-//                     .get_unchecked_mut(weights_left..weights_right)
-//             };
-//             let mut sum = 0.0;
-//             for (s, i) in weights.iter_mut().zip(left..right) {
-//                 let w = (filter.kernel)((i as f32 - inputy) / sratio);
-//                 *s = (i as usize * row_stride, w);
-//                 sum += w;
-//             }
-//             weights.iter_mut().for_each(|(_, w)| *w /= sum);
-//             (0..row_stride)
-//                 .step_by(channels)
-//                 .zip(row.outer_iter_mut())
-//                 .for_each(|(x, mut np)| {
-//                     weights.iter().for_each(|(y, w)| {
-//                         let p = y + x;
-//                         np.iter_mut()
-//                             .zip(unsafe { orig.get_unchecked(p..p + channels) }.iter())
-//                             .for_each(|(t, o)| *t += *o as f32 * w)
-//                     });
-//                 });
-//         });
-// }
-// fn hsample(&mut self) {
-//     let channels: usize = self.channels;
-//     let nw = self.size.0;
-//     let (w, h) = (self.osize.0, self.size.1);
-//     let row_stride = channels * w as usize;
-//     let end = row_stride * h as usize;
-//     let filter: &Filter = self.filter.filter();
-
-//     let max: f32 = u8::MAX as f32;
-//     let min: f32 = u8::MIN as f32;
-//     let ratio = w as f32 / nw as f32;
-//     let sratio = ratio.max(1.);
-//     let src_support = filter.support * sratio;
-
-//     // pre allocate all the weights
-//     let max_span = src_support.ceil() as usize * 2 + 1;
-//     let wgs_len = max_span * nw as usize;
-//     let mut wgs: Vec<(usize, f32)> = Vec::with_capacity(wgs_len);
-//     unsafe { wgs.set_len(wgs_len) };
-//     let wgs = wgs.as_slice();
-//     let wgs_ptr = wgs.as_ptr() as usize;
-
-//     ndarray::ArrayViewMut3::from_shape(
-//         [h as usize, nw as usize, channels].strides([channels * nw as usize, channels, 1]),
-//         self.resized.as_mut_slice(),
-//     )
-//     .expect(concat!(module_path!(), "Resizer::hsample: invalid shape"))
-//     .axis_iter_mut(Axis(1))
-//     .into_par_iter()
-//     .enumerate()
-//     .for_each_with(&self.vert, |orig, (outx, mut col)| {
-//         let inputx = (outx as f32 + 0.5) * ratio;
-//         let left = ((inputx - src_support).floor() as i64).clamp(0, (w - 1) as i64) as u32;
-//         let right = ((inputx + src_support).ceil() as i64).clamp((left + 1) as i64, w as i64) as u32;
-//         let inputx = inputx - 0.5;
-//         let weights_left = outx * max_span;
-//         let weights_right = weights_left + (right - left) as usize;
-//         let weights = unsafe {
-//             std::slice::from_raw_parts_mut(wgs_ptr as *mut (usize, f32), wgs_len)
-//                 .get_unchecked_mut(weights_left..weights_right)
-//         };
-//         let mut sum = 0.0;
-//         for (s, i) in weights.iter_mut().zip(left..right) {
-//             let w = (filter.kernel)((i as f32 - inputx) / sratio);
-//             *s = (i as usize * channels, w);
-//             sum += w;
-//         }
-//         weights.iter_mut().for_each(|(_, w)| *w /= sum);
-//         let mut t = vec![0_f32; channels];
-//         let t = t.as_mut_slice();
-//         (0..end)
-//             .step_by(row_stride)
-//             .zip(col.outer_iter_mut())
-//             .for_each(|(y, mut np)| {
-//                 t.fill(0_f32);
-//                 weights.iter().for_each(|(x, w)| {
-//                     let p = y + x;
-//                     t.iter_mut()
-//                         .zip(unsafe { orig.get_unchecked(p..p + channels) }.iter())
-//                         .for_each(|(t, o)| *t += *o * w)
-//                 });
-//                 np.iter_mut()
-//                     .zip(t.iter())
-//                     .for_each(|(np, t)| *np = t.clamp(min, max).round() as u8);
-//             });
-//     });
-// }
-// }

@@ -1,14 +1,35 @@
 //! A "super simple" cli/tui ansi image viewer.
-use std::path::PathBuf;
+use std::{cell::Cell, path::PathBuf};
 
 use clap::{value_parser, CommandFactory, FromArgMatches, Parser, ValueEnum};
 use image::{self, GenericImageView};
 
+#[macro_use]
 mod macros;
+#[macro_use]
 mod viuwa;
 pub use anyhow::{anyhow, bail, Context, Result};
-pub use macros::*;
 use viuwa::{resizer::FilterType, *};
+
+#[cfg(feature = "trace")]
+mod tracing {
+    use core::mem::ManuallyDrop;
+    pub struct DropFn<F: FnOnce()>(ManuallyDrop<F>);
+    impl<F: FnOnce()> DropFn<F> {
+        #[inline]
+        pub fn new(f: F) -> Self { Self(ManuallyDrop::new(f)) }
+    }
+    impl<F: FnOnce()> From<F> for DropFn<F> {
+        #[inline]
+        fn from(f: F) -> Self { Self::new(f) }
+    }
+    impl<F: FnOnce()> Drop for DropFn<F> {
+        #[inline]
+        fn drop(&mut self) { (unsafe { ManuallyDrop::take(&mut self.0) })(); }
+    }
+}
+#[cfg(feature = "trace")]
+pub use tracing::*;
 
 /// A threshold for warning the user that the image is too large (width * height).
 /// This is a heuristic, and is not guaranteed to be accurate.
@@ -27,8 +48,34 @@ const DEFAULT_COLS: u16 = 80;
 const DEFAULT_ROWS: u16 = 24;
 // const LOWER_HALF_BLOCK: &str = "\u{2584}";
 const UPPER_HALF_BLOCK: &str = "\u{2580}";
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum LogLevel {
+    Info,
+    Warn,
+    Error,
+    Silent,
+}
+impl LogLevel {
+    #[inline]
+    pub fn enabled(self) -> bool { LOG_LEVEL.with(|cell| cell.get() <= self) }
+}
+impl From<u8> for LogLevel {
+    fn from(v: u8) -> Self {
+        match v {
+            0 => Self::Info,
+            1 => Self::Warn,
+            2 => Self::Error,
+            _ => Self::Silent,
+        }
+    }
+}
 
-#[derive(Parser)]
+thread_local! {
+    pub static LOG_LEVEL: Cell<LogLevel> = Cell::new(LogLevel::Info);
+}
+
+#[derive(Parser, Debug)]
 #[command(
         version = env!("CARGO_PKG_VERSION"),
         author = env!("CARGO_PKG_AUTHORS"),
@@ -42,9 +89,9 @@ pub struct Args {
     /// Prints help information
     #[arg(short = '?', hide = true, action = clap::ArgAction::Help)]
     special_help: Option<bool>,
-    /// Suppresses all warnings and messages
-    #[arg(short, long)]
-    quiet: bool,
+    /// Level of messaging suppression
+    #[arg(short, long, action = clap::ArgAction::Count, value_parser = value_parser!(u8).range(0..=3))]
+    quiet: u8,
     /// Manually provide the path to the config.toml file
     #[cfg(feature = "config")]
     #[arg(long, value_name = "FILE", value_hint = clap::ValueHint::FilePath, value_parser = parse_file_path)]
@@ -59,7 +106,7 @@ pub struct Args {
     #[arg(short, long, default_value_t = ColorType::Color, value_enum, ignore_case = true)]
     color: ColorType,
     /// Display the image inline
-    #[arg(short, long, env = "VIUWA_INLINE")]
+    #[arg(short, long)]
     inline: bool,
     /// The width of the displayed image
     #[arg(
@@ -129,7 +176,7 @@ impl Args {
         macro_rules! _get {
             (if table.$name:ident is $t:ident then $e:expr) => {
                 if let Some($name) = table.get(stringify!($name)) {
-                    debug!("Args:try_merge_matches_and_toml: {} in config.toml", stringify!($name));
+                    debug!("Args:try_merge_matches_and_toml", "config contains {}", stringify!($name));
                     if let Value::$t($name) = $name {
                         $e;
                     } else {
@@ -139,7 +186,7 @@ impl Args {
             };
             (if $name:ident.source is $t:ident then $e:expr) => {
                 if let Some(ValueSource::$t) = arg_matches.value_source(stringify!($name)) {
-                    debug!("Args:try_merge_matches_and_toml: {}.source={}", stringify!($name), stringify!($t));
+                    debug!("Args:try_merge_matches_and_toml", "{}.source={}", stringify!($name), stringify!($t));
                     $e;
                 }
             };
@@ -172,7 +219,7 @@ impl Args {
                 ))
             }
         }
-        get!(quiet, Boolean);
+        get!(quiet, Integer, |&v| if v >= 0 && v <= 3 { Ok(v as u8) } else { Err("must be in range [0, 3]".to_string()) });
         get!(filter, String, enum_from_str::<FilterType>);
         get!(color, String, enum_from_str::<ColorType>);
         get!(inline, Boolean);
@@ -215,17 +262,12 @@ fn supports_ansi() -> bool { std::env::var("TERM").map_or(false, |term| term != 
 /// Very basic check to see if terminal supports ansi, and enables Virtual Terminal Processing on Windows
 #[cfg(windows)]
 fn supports_ansi() -> bool { crossterm::ansi_support::supports_ansi() }
-/// Does not work if wasm runtime is restricted (most runtimes are)
 #[cfg(target_family = "wasm")]
 fn is_windows() -> bool {
-    if let Ok(exe) = std::env::current_exe() {
-        exe.canonicalize().unwrap_or(exe).extension().map_or(false, |ext| ext.to_str() == Some("exe"))
-    } else {
-        std::env::var("OS").map_or_else(
-            |_| std::env::var("SystemRoot").map_or(false, |s| s.to_ascii_lowercase().contains("windows")),
-            |os| os.to_ascii_lowercase().contains("windows"),
-        )
-    }
+    std::env::var("OS").map_or_else(
+        |_| std::env::var("SystemRoot").map_or(false, |s| s.to_ascii_lowercase().contains("windows")),
+        |os| os.to_ascii_lowercase().contains("windows"),
+    )
 }
 /// Warnings for ansi support and windows
 #[cfg(target_family = "wasm")]
@@ -233,10 +275,10 @@ fn warnings() -> Result<(), ()> {
     let is_ansi = supports_ansi();
     let is_win = is_windows();
     if is_win {
-        warning!("Windows support with wasm is unstable, use the native binary instead");
+        warn!("Windows support with wasm is unstable, use the native binary instead");
     }
     if !is_ansi {
-        warning!("Could not verify that terminal supports ansi. Continue? [Y/n] ");
+        warn!("Could not verify that terminal supports ansi. Continue? [Y/n] ");
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();
         let input = input.trim().to_ascii_lowercase();
@@ -246,12 +288,13 @@ fn warnings() -> Result<(), ()> {
     }
     Ok(())
 }
+
 /// Warnings for ansi support and windows
 #[cfg(any(unix, windows))]
 fn warnings() -> Result<(), ()> {
     let is_ansi = supports_ansi();
     if !is_ansi {
-        warning!("Could not verify that terminal supports ansi. Continue? [Y/n] ");
+        warn!("Could not verify that terminal supports ansi. Continue? [Y/n] ");
         let mut input = String::new();
         std::io::stdin().read_line(&mut input).unwrap();
         let input = input.trim().to_ascii_lowercase();
@@ -263,41 +306,50 @@ fn warnings() -> Result<(), ()> {
 }
 
 fn main() -> Result<()> {
-    #[cfg(feature = "profiler")]
+    #[cfg(feature = "debug")]
     {
-        eprintln!("features:");
+        eprint!(concat!(fg!(238), "[DEBUG] features: "));
         #[cfg(feature = "rayon")]
-        eprintln!("\t- rayon");
+        eprint!("rayon,");
         #[cfg(feature = "fir")]
-        eprintln!("\t- fir");
-        #[cfg(feature = "profiler")]
-        eprintln!("\t- profiler");
+        eprint!("fir,");
         #[cfg(feature = "env")]
-        eprintln!("\t- env");
+        eprint!("env,");
         #[cfg(feature = "config")]
-        eprintln!("\t- config");
+        eprint!("config,");
+        #[cfg(feature = "trace")]
+        eprint!("trace,");
+        eprintln!(concat!("debug", fg!(reset)));
     }
-    timer!("main");
-    let mut args = Args::command();
-    #[cfg(feature = "env")]
+    trace!("main");
+    let mut args;
+    let matches;
     {
-        args = args
-            .mut_arg("quiet", |a| a.env("VIUWA_QUIET"))
-            .mut_arg("filter", |a| a.env("VIUWA_FILTER"))
-            .mut_arg("color", |a| a.env("VIUWA_COLOR"))
-            .mut_arg("inline", |a| a.env("VIUWA_INLINE"))
-            .mut_arg("width", |a| a.env("VIUWA_WIDTH"))
-            .mut_arg("height", |a| a.env("VIUWA_HEIGHT"))
-            .mut_arg("luma-correct", |a| a.env("VIUWA_CORRECT"));
-        #[cfg(feature = "config")]
+        trace!("main: parsing args");
+        let mut cmd = Args::command();
+        #[cfg(feature = "env")]
         {
-            args = args.mut_arg("config", |a| a.env("VIUWA_CONFIG"));
+            cmd = cmd
+                .mut_arg("quiet", |a| a.env("VIUWA_QUIET"))
+                .mut_arg("filter", |a| a.env("VIUWA_FILTER"))
+                .mut_arg("color", |a| a.env("VIUWA_COLOR"))
+                .mut_arg("inline", |a| a.env("VIUWA_INLINE"))
+                .mut_arg("width", |a| a.env("VIUWA_WIDTH"))
+                .mut_arg("height", |a| a.env("VIUWA_HEIGHT"))
+                .mut_arg("luma-correct", |a| a.env("VIUWA_CORRECT"));
+            #[cfg(feature = "config")]
+            {
+                cmd = cmd.mut_arg("config", |a| a.env("VIUWA_CONFIG"));
+            }
         }
+        matches = cmd.get_matches();
+        args = Args::from_arg_matches(&matches)?;
     }
-    let matches = args.get_matches();
-    let mut args = Args::from_arg_matches(&matches)?;
+    debug!("main", "parsed args: {:#?}", args);
+    LOG_LEVEL.with(|cell| cell.set(LogLevel::from(args.quiet)));
     #[cfg(feature = "config")]
     'config: {
+        trace!("main: config");
         use toml::value::*;
         let config_path = if let Some(config_path) = &args.config {
             config_path.clone()
@@ -306,16 +358,14 @@ fn main() -> Result<()> {
             #[cfg(not(target_family = "wasm"))]
             {
                 let Some(dir) = directories::ProjectDirs::from("","","viuwa") else {
-                    if !args.quiet {
-                        warning!("Could not find config folder");
-                    }
+                    info!("Could not find config");
                     break 'config;
                 };
                 config_path = dir.config_dir().join("config.toml");
             }
             #[cfg(target_family = "wasm")]
             {
-                let Ok(config_path) = std::env::var("XDG_CONFIG_HOME")
+                let Ok(config_path_str) = std::env::var("XDG_CONFIG_HOME")
                 .map(|base| base + "/viuwa/config.toml")
                 .or_else(|_| std::env::var("LOCALAPPDATA").map(|base| base + "/viuwa/config.toml"))
                 .or_else(|_| {
@@ -326,17 +376,13 @@ fn main() -> Result<()> {
                         return base + "/.config/viuwa/config.toml";
                     })
                 }) else {
-                if !args.quiet {
-                    warning!("Could not find config folder");
-                }
+                    warn!("Could not find config folder");
                 break 'config;
             };
-                config_path = PathBuf::from(config_path);
+                config_path = PathBuf::from(config_path_str);
             }
             if !config_path.is_file() {
-                if !args.quiet {
-                    warning!("Could not find config file");
-                }
+                info!("Could not find config");
                 break 'config;
             }
             config_path
@@ -359,6 +405,8 @@ fn main() -> Result<()> {
                 }
             }
         }
+        LOG_LEVEL.with(|cell| cell.set(LogLevel::from(args.quiet)));
+        debug!("main", "args with config: {:#?}", args);
     }
     if let Err(_) = warnings() {
         return Ok(());
@@ -369,11 +417,11 @@ fn main() -> Result<()> {
 
     let osize = orig.dimensions();
     // if the image is larger than or equal to 4k, warn the user
-    if !args.quiet && (osize.0 * osize.1 >= IMAGE_SIZE_THRESHOLD) {
-        warning!("Image is very large, to avoid performance issues, consider resizing it");
+    if osize.0 * osize.1 >= IMAGE_SIZE_THRESHOLD {
+        info!("Image is very large, may cause performance issues");
     }
-    // unwraps so that we can use panic to report a bug if this fails, (bad idea, but it's better than opaque errors)
-    // most likely due to std::io::stdout() write failing
+    // unwraps so that we can use panic to report a bug if this fails, (better than opaque errors)
+    // most likely due to std::io::stdout() write failing (which *should* *almost* never happen under normal circumstances)
     if !args.inline {
         viuwa::windowed(orig, args).unwrap()
     } else {

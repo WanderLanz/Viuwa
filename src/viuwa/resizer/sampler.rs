@@ -56,14 +56,16 @@ impl SamplerSpan {
     #[inline(always)]
     pub fn len(&self) -> usize { (self.right.saturating_sub(self.left)) as usize }
     #[inline(always)]
-    pub fn new(i: f32, ratio: f32, support: f32, axis_len: u32) -> Self {
-        let center = (i + 0.5) * ratio;
-        let left = ((center - support).floor() as u32).min(axis_len - 1);
-        let right = ((center + support).ceil() as u32).clamp(left + 1, axis_len);
+    pub fn new(out: f32, ratio: f32, support: f32, len: u32) -> Self {
+        let center = (out + 0.5) * ratio;
+        let left = ((center - support).floor() as u32).min(len - 1);
+        let right = ((center + support).ceil() as u32).clamp(left + 1, len);
         let center = center - 0.5;
         Self { left, right, center }
     }
 }
+
+// macros to get around the borrow checker complaining
 macro_rules! get_hspan {
     ($sampler:ident, $outx:ident) => {
         SamplerSpan::new($outx as f32, $sampler.ratio.x, $sampler.support.x, $sampler.src.width as u32)
@@ -165,11 +167,16 @@ impl<'a, P: Pixel> Sampler<'a, P> {
         let sratio = XY::new(ratio.x.max(1.), ratio.y.max(1.));
         let support = XY::new(filter.support * sratio.x, filter.support * sratio.y);
         let max_span = XY::new(support.x.ceil() as usize * 2 + 1, support.y.ceil() as usize * 2 + 1);
-        let vertical_first =
-            vertical_first_mem::<P>(&src, &dst, &max_span) <= horizontal_first_mem::<P>(&src, &dst, &max_span);
+        let vf = vertical_first_mem::<P>(&src, &dst, &max_span);
+        let hf = horizontal_first_mem::<P>(&src, &dst, &max_span);
+        // prefer vertical first at the cost of some memory in order to avoid potential caching and paging slowdowns
+        // REVIEW: Is this a sufficient way to do this, and does this even actually help after compiler optimizations and for large images?
+        let vertical_first = if vf > 4096 { (vf as f64 / hf as f64) < 1.5 } else { true };
         let (buf, hwgts, vwgts, bounds) = if vertical_first {
+            debug!("Sampler::new", "vertical first: {}B", vf);
             (unvec!(src.row_len), unvec!(max_span.x * dst.width), unvec!(max_span.y), unvec!(dst.width))
         } else {
+            debug!("Sampler::new", "horizontal first: {}B", hf);
             (unvec!(src.col_len), unvec!(max_span.x), unvec!(max_span.y * dst.height), unvec!(dst.height))
         };
         Self {
@@ -199,7 +206,7 @@ impl<'a, P: Pixel> Sampler<'a, P> {
     #[inline(always)]
     /// fill the horizontal weights buffer with the weights for every column in dst
     fn fill_hwgts_buf(&mut self) {
-        crate::timer!("Sampler::fill_hwgts_buf");
+        trace!("Sampler::fill_hwgts_buf");
         #[cfg(not(feature = "rayon"))]
         for (outx, (weights, bound)) in self.hwgts.chunks_exact_mut(self.max_span.x).zip(self.bounds.iter_mut()).enumerate()
         {
@@ -223,7 +230,7 @@ impl<'a, P: Pixel> Sampler<'a, P> {
     #[inline(always)]
     /// fill the vertical weights buffer with the weights for every row in dst
     fn fill_vwgts_buf(&mut self) {
-        crate::timer!("Sampler::fill_vwgts_buf");
+        trace!("Sampler::fill_vwgts_buf");
         #[cfg(not(feature = "rayon"))]
         for (outy, (weights, bound)) in self.vwgts.chunks_exact_mut(self.max_span.y).zip(self.bounds.iter_mut()).enumerate()
         {
@@ -308,7 +315,7 @@ impl<'a, P: Pixel> Sampler<'a, P> {
     }
     /// vertical-first sampling (row buffer and pre-computed horizontal weights)
     pub fn sample_vertical_first(mut self, _tpx: &mut [f32]) {
-        crate::timer!("Sampler::sample_vertical_first");
+        trace!("Sampler::sample_vertical_first");
         self.fill_hwgts_buf();
         for (outy, dst_off) in (0..self.dst.height).zip((0_usize..).step_by(self.dst.row_len)) {
             self.fill_row_buf(outy);
@@ -338,13 +345,13 @@ impl<'a, P: Pixel> Sampler<'a, P> {
                 .for_each(|(([buf_off, clen], weights), dst_px)| {
                     let weights = &mut weights[..*clen];
                     let mut tmp_px_max = [0_f32; 4];
-                    let tmp_px = &mut tmp_px_max[..P::CHANNELS];
+                    let tpx = &mut tmp_px_max[..P::CHANNELS];
                     for (buf_px, coef) in self.buf[*buf_off..].chunks_exact(P::CHANNELS).zip(weights.iter()) {
-                        for (d, s) in _tpx.iter_mut().zip(buf_px.iter()) {
+                        for (d, s) in tpx.iter_mut().zip(buf_px.iter()) {
                             *d += *s * coef;
                         }
                     }
-                    for (d, s) in dst_px.iter_mut().zip(_tpx.iter()) {
+                    for (d, s) in dst_px.iter_mut().zip(tpx.iter()) {
                         *d = s.round().clamp(u8::MIN as f32, u8::MAX as f32) as u8;
                     }
                 });
@@ -352,7 +359,7 @@ impl<'a, P: Pixel> Sampler<'a, P> {
     }
     /// horizontal-first sampling (column buffer and pre-computed vertical weights)
     pub fn sample_horizontal_first(mut self, _tpx: &mut [f32]) {
-        crate::timer!("Sampler::sample_horizontal_first");
+        trace!("Sampler::sample_horizontal_first");
         self.fill_vwgts_buf();
         for (outx, dst_off) in (0..self.dst.width).zip((0_usize..).step_by(P::CHANNELS)) {
             self.fill_col_buf(outx);
@@ -383,24 +390,26 @@ impl<'a, P: Pixel> Sampler<'a, P> {
                 .for_each(|(([buf_off, clen], weights), dst_px)| {
                     let weights = &mut weights[..*clen];
                     let mut tmp_px_max = [0_f32; 4];
-                    let tmp_px = &mut tmp_px_max[..P::CHANNELS];
+                    let tpx = &mut tmp_px_max[..P::CHANNELS];
                     for (buf_px, coef) in self.buf[*buf_off..].chunks_exact(P::CHANNELS).zip(weights.iter()) {
-                        for (d, s) in _tpx.iter_mut().zip(buf_px.iter()) {
+                        for (d, s) in tpx.iter_mut().zip(buf_px.iter()) {
                             *d += *s * coef;
                         }
                     }
-                    for (d, s) in dst_px.iter_mut().zip(_tpx.iter()) {
+                    for (d, s) in dst_px.iter_mut().zip(tpx.iter()) {
                         *d = s.round().clamp(u8::MIN as f32, u8::MAX as f32) as u8;
                     }
                 });
         }
     }
 }
+
+/// sample src image into dst image using a given filter, optimized for memory usage, although should be only slightly slower
 pub fn sample<P: Pixel>(
     src: &ImageBuffer<P, Vec<P::Subpixel>>,
     dst: &mut ImageBuffer<P, Vec<P::Subpixel>>,
     filter: &Filter,
 ) {
-    crate::timer!("resizer::sample");
+    trace!("sample");
     Sampler::new(filter, src, dst).sample();
 }

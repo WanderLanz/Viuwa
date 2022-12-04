@@ -34,7 +34,7 @@ rayon = { version = "1.6.0", optional = true }
 fast_image_resize = { version = "2.3.*", optional = true }
 toml = { version = "0.5.9", optional = true }
 directories = { version = "4.0.*", optional = true }
-ndarray = { version = "0.15.6", default-features = false, features = ["std"] }
+ndarray = { version = "0.15.6", default-features = false, features = [] }
 human-panic = "1.0.*"
 anyhow = "1.0.*"
 # base64 = { version = "0.13.*", optional = true }
@@ -43,7 +43,7 @@ anyhow = "1.0.*"
 crossterm = { version = "0.25.*", default-features = false }
 
 [features]
-default = ["env", "config"]
+default = ["env", "config", "rayon"]
 # multithreading with rayon
 rayon = ["dep:rayon", "ndarray/rayon", "image/jpeg_rayon"]
 # fast image resizing with fast_image_resize and simd, takes precedence over rayon image resizing
@@ -52,9 +52,9 @@ fir = ["dep:fast_image_resize"]
 env = ["clap/env"]
 # read options from a config file
 config = ["dep:toml", "dep:directories"]
-# print timings for various operations
-profiler = []
-# print debug info
+# print trace and timings for various operations
+trace = []
+# print debug messages
 debug = []
 # sixel = []
 # iterm = ["dep:base64"]

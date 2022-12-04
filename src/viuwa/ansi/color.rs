@@ -4,11 +4,76 @@
 
 #[cfg(feature = "fir")]
 use fast_image_resize as fir;
-use image::{Luma, Rgb, Rgba};
+use image::{Luma, Rgb};
 
 #[cfg(feature = "fir")]
 use super::*;
 use crate::viuwa::ColorAttributes;
+
+#[allow(non_camel_case_types)]
+#[derive(Debug, Clone, Copy)]
+pub enum AnsiColorPresets {
+    black,
+    red,
+    green,
+    yellow,
+    blue,
+    magenta,
+    cyan,
+    white,
+    Black,
+    Red,
+    Green,
+    Yellow,
+    Blue,
+    Magenta,
+    Cyan,
+    White,
+}
+impl AnsiColorPresets {
+    pub const fn fg(self) -> &'static str {
+        use AnsiColorPresets::*;
+        match self {
+            black => csi!("30m"),
+            red => csi!("31m"),
+            green => csi!("32m"),
+            yellow => csi!("33m"),
+            blue => csi!("34m"),
+            magenta => csi!("35m"),
+            cyan => csi!("36m"),
+            white => csi!("37m"),
+            Black => csi!("90m"),
+            Red => csi!("91m"),
+            Green => csi!("92m"),
+            Yellow => csi!("93m"),
+            Blue => csi!("94m"),
+            Magenta => csi!("95m"),
+            Cyan => csi!("96m"),
+            White => csi!("97m"),
+        }
+    }
+    pub const fn bg(self) -> &'static str {
+        use AnsiColorPresets::*;
+        match self {
+            black => csi!("40m"),
+            red => csi!("41m"),
+            green => csi!("42m"),
+            yellow => csi!("43m"),
+            blue => csi!("44m"),
+            magenta => csi!("45m"),
+            cyan => csi!("46m"),
+            white => csi!("47m"),
+            Black => csi!("100m"),
+            Red => csi!("101m"),
+            Green => csi!("102m"),
+            Yellow => csi!("103m"),
+            Blue => csi!("104m"),
+            Magenta => csi!("105m"),
+            Cyan => csi!("106m"),
+            White => csi!("107m"),
+        }
+    }
+}
 
 pub const MAX_COLOR_DISTANCE: u32 = 584_970_u32;
 pub const MAP_0_100_DIST: f32 = MAX_COLOR_DISTANCE as f32 / 100.;
@@ -68,113 +133,77 @@ pub fn rgb_in_256([r, g, b]: [u8; 3]) -> u8 {
     (36 * r + 6 * g + b) as u8 + 16
 }
 
+#[cfg(feature = "fir")]
+fn fir_dimensions<'a, P: Pixel>(
+    img: &'a image::ImageBuffer<P, Vec<u8>>,
+) -> Result<(core::num::NonZeroU32, core::num::NonZeroU32)> {
+    match (core::num::NonZeroU32::new(img.width()), core::num::NonZeroU32::new(img.height())) {
+        (Some(w), Some(h)) => Ok((w, h)),
+        _ => Err(anyhow::anyhow!("Image dimensions are zero")),
+    }
+}
+
 /// Base trait for converting a raw pixel value into an ansi color.
 pub trait RawPixel: Sized {
-    #[cfg(feature = "fir")]
-    fn fir_dimensions<'a, P: Pixel>(
-        img: &'a image::ImageBuffer<P, Vec<u8>>,
-    ) -> Result<(core::num::NonZeroU32, core::num::NonZeroU32)> {
-        match (core::num::NonZeroU32::new(img.width()), core::num::NonZeroU32::new(img.height())) {
-            (Some(w), Some(h)) => Ok((w, h)),
-            _ => Err(anyhow::anyhow!("Image dimensions are zero")),
-        }
-    }
     #[cfg(feature = "fir")]
     fn fir_view_image<'a, P: Pixel>(img: &'a image::ImageBuffer<P, Vec<u8>>) -> Result<fir::DynamicImageView<'a>>;
     #[cfg(feature = "fir")]
     fn fir_view_image_mut<'a, P: Pixel>(img: &'a mut image::ImageBuffer<P, Vec<u8>>)
         -> Result<fir::DynamicImageViewMut<'a>>;
     const CHANNELS: usize;
-    const CHANNELS_F32: usize = Self::CHANNELS * core::mem::size_of::<f32>();
     type Repr: Clone + Copy + Send + Sync + Sized;
-    fn to_24bit_color(p: Self::Repr, a: &ColorAttributes) -> [u8; 3];
-    fn to_24bit_gray(p: Self::Repr, a: &ColorAttributes) -> [u8; 3];
-    fn to_8bit_color(p: Self::Repr, a: &ColorAttributes) -> u8;
-    fn to_8bit_gray(p: Self::Repr, a: &ColorAttributes) -> u8;
-}
-
-impl RawPixel for Rgba<u8> {
-    #[cfg(feature = "fir")]
-    fn fir_view_image<'a, P: Pixel>(img: &'a image::ImageBuffer<P, Vec<u8>>) -> Result<fir::DynamicImageView<'a>> {
-        let (w, h) = Self::fir_dimensions(img)?;
-        Ok(fir::DynamicImageView::U8x4(fir::ImageView::from_buffer(w, h, img)?))
-    }
-    #[cfg(feature = "fir")]
-    fn fir_view_image_mut<'a, P: Pixel>(
-        img: &'a mut image::ImageBuffer<P, Vec<u8>>,
-    ) -> Result<fir::DynamicImageViewMut<'a>> {
-        let (w, h) = Self::fir_dimensions(img)?;
-        Ok(fir::DynamicImageViewMut::U8x4(fir::ImageViewMut::from_buffer(w, h, img)?))
-    }
-    const CHANNELS: usize = 4;
-    type Repr = [u8; 4];
-    #[inline(always)]
-    fn to_24bit_color([r, g, b, _]: Self::Repr, _a: &ColorAttributes) -> [u8; 3] { [r, g, b] }
-    #[inline(always)]
-    fn to_24bit_gray([r, g, b, _]: Self::Repr, _a: &ColorAttributes) -> [u8; 3] {
-        let v = luma([r, g, b]);
-        [v, v, v]
-    }
-    #[inline(always)]
-    fn to_8bit_color([r, g, b, _]: Self::Repr, a: &ColorAttributes) -> u8 { rgb_to_256([r, g, b], a) }
-    #[inline(always)]
-    fn to_8bit_gray([r, g, b, _]: Self::Repr, _a: &ColorAttributes) -> u8 { gray_to_256(luma([r, g, b])) }
+    fn to_rgb(p: Self::Repr, a: &ColorAttributes) -> [u8; 3];
+    fn to_luma(p: Self::Repr, a: &ColorAttributes) -> u8;
+    fn to_256(p: Self::Repr, a: &ColorAttributes) -> u8;
 }
 
 impl RawPixel for Rgb<u8> {
     #[cfg(feature = "fir")]
     fn fir_view_image<'a, P: Pixel>(img: &'a image::ImageBuffer<P, Vec<u8>>) -> Result<fir::DynamicImageView<'a>> {
-        let (w, h) = Self::fir_dimensions(img)?;
+        let (w, h) = fir_dimensions(img)?;
         Ok(fir::DynamicImageView::U8x3(fir::ImageView::from_buffer(w, h, img)?))
     }
     #[cfg(feature = "fir")]
     fn fir_view_image_mut<'a, P: Pixel>(
         img: &'a mut image::ImageBuffer<P, Vec<u8>>,
     ) -> Result<fir::DynamicImageViewMut<'a>> {
-        let (w, h) = Self::fir_dimensions(img)?;
+        let (w, h) = fir_dimensions(img)?;
         Ok(fir::DynamicImageViewMut::U8x3(fir::ImageViewMut::from_buffer(w, h, img)?))
     }
     const CHANNELS: usize = 3;
     type Repr = [u8; 3];
     #[inline(always)]
-    fn to_24bit_color(p: Self::Repr, _a: &ColorAttributes) -> [u8; 3] { p }
+    fn to_rgb(p: Self::Repr, _a: &ColorAttributes) -> [u8; 3] { p }
     #[inline(always)]
-    fn to_24bit_gray(p: Self::Repr, _a: &ColorAttributes) -> [u8; 3] {
-        let v = luma(p);
-        [v, v, v]
-    }
+    fn to_luma(p: Self::Repr, _a: &ColorAttributes) -> u8 { luma(p) }
     #[inline(always)]
-    fn to_8bit_color(p: Self::Repr, a: &ColorAttributes) -> u8 { rgb_to_256(p, a) }
-    #[inline(always)]
-    fn to_8bit_gray(p: Self::Repr, _a: &ColorAttributes) -> u8 { gray_to_256(luma(p)) }
+    fn to_256(p: Self::Repr, a: &ColorAttributes) -> u8 { rgb_to_256(p, a) }
 }
 
 impl RawPixel for Luma<u8> {
     #[cfg(feature = "fir")]
     fn fir_view_image<'a, P: Pixel>(img: &'a image::ImageBuffer<P, Vec<u8>>) -> Result<fir::DynamicImageView<'a>> {
-        let (w, h) = Self::fir_dimensions(img)?;
+        let (w, h) = fir_dimensions(img)?;
         Ok(fir::DynamicImageView::U8(fir::ImageView::from_buffer(w, h, img)?))
     }
     #[cfg(feature = "fir")]
     fn fir_view_image_mut<'a, P: Pixel>(
         img: &'a mut image::ImageBuffer<P, Vec<u8>>,
     ) -> Result<fir::DynamicImageViewMut<'a>> {
-        let (w, h) = Self::fir_dimensions(img)?;
+        let (w, h) = fir_dimensions(img)?;
         Ok(fir::DynamicImageViewMut::U8(fir::ImageViewMut::from_buffer(w, h, img)?))
     }
     const CHANNELS: usize = 1;
     type Repr = u8;
     #[inline(always)]
-    fn to_24bit_color(p: Self::Repr, a: &ColorAttributes) -> [u8; 3] { Self::to_24bit_gray(p, a) }
+    fn to_rgb(p: Self::Repr, _a: &ColorAttributes) -> [u8; 3] { [p; 3] }
     #[inline(always)]
-    fn to_24bit_gray(p: Self::Repr, _: &ColorAttributes) -> [u8; 3] { [p, p, p] }
+    fn to_luma(p: Self::Repr, _a: &ColorAttributes) -> u8 { p }
     #[inline(always)]
-    fn to_8bit_color(p: Self::Repr, a: &ColorAttributes) -> u8 { Self::to_8bit_gray(p, a) }
-    #[inline(always)]
-    fn to_8bit_gray(p: Self::Repr, _: &ColorAttributes) -> u8 { gray_to_256(p) }
+    fn to_256(p: Self::Repr, _a: &ColorAttributes) -> u8 { gray_to_256(p) }
 }
 
-pub trait ColorWriter {
+pub trait AnsiColorWriter {
     /// Reserve space for 2 color sequences + 1 character.
     const RESERVE_SIZE: usize;
     /// The representation of pixel data for this writer.
@@ -195,8 +224,8 @@ fn seq24(buf: &mut Vec<u8>, [r, g, b]: [u8; 3], inducer: &[u8]) {
     buf.extend_from_slice(b"m");
 }
 
-pub struct ColorWriter24bit;
-impl ColorWriter for ColorWriter24bit {
+pub struct AnsiRgbWriter;
+impl AnsiColorWriter for AnsiRgbWriter {
     const RESERVE_SIZE: usize = 39;
     type Repr = [u8; 3];
     #[inline(always)]
@@ -212,8 +241,8 @@ fn seq8(buf: &mut Vec<u8>, c: u8, inducer: &[u8]) {
     buf.extend_from_slice(b"m");
 }
 
-pub struct ColorWriter8bit;
-impl ColorWriter for ColorWriter8bit {
+pub struct Ansi256Writer;
+impl AnsiColorWriter for Ansi256Writer {
     const RESERVE_SIZE: usize = 23;
     type Repr = u8;
     #[inline(always)]
@@ -223,52 +252,57 @@ impl ColorWriter for ColorWriter8bit {
 }
 
 pub trait AnsiColor {
-    type Writer: ColorWriter;
-    fn to_repr<P: RawPixel>(p: P::Repr, a: &ColorAttributes) -> <Self::Writer as ColorWriter>::Repr;
+    type Writer: AnsiColorWriter;
+    /// Convert the raw pixel repr to the repr for the writer.
+    fn repr_pixel<P: RawPixel>(p: P::Repr, a: &ColorAttributes) -> <Self::Writer as AnsiColorWriter>::Repr;
     #[inline(always)]
-    fn fg<'a, P: RawPixel>(buf: &mut Vec<u8>, p: P::Repr, a: &ColorAttributes) {
-        Self::Writer::fg(buf, Self::to_repr::<P>(p, a))
-    }
+    /// Write the foreground color sequence to the buffer.
+    fn fg(buf: &mut Vec<u8>, val: <Self::Writer as AnsiColorWriter>::Repr) { Self::Writer::fg(buf, val) }
     #[inline(always)]
-    fn bg<'a, P: RawPixel>(buf: &mut Vec<u8>, p: P::Repr, a: &ColorAttributes) {
-        Self::Writer::bg(buf, Self::to_repr::<P>(p, a))
+    /// Write the background color sequence to the buffer.
+    fn bg(buf: &mut Vec<u8>, val: <Self::Writer as AnsiColorWriter>::Repr) { Self::Writer::bg(buf, val) }
+}
+pub struct ColorRgb;
+impl AnsiColor for ColorRgb {
+    type Writer = AnsiRgbWriter;
+    #[inline(always)]
+    fn repr_pixel<P: RawPixel>(p: P::Repr, a: &ColorAttributes) -> <Self::Writer as AnsiColorWriter>::Repr {
+        P::to_rgb(p, a)
     }
 }
-pub struct Color24;
-impl AnsiColor for Color24 {
-    type Writer = ColorWriter24bit;
+pub struct Color256;
+impl AnsiColor for Color256 {
+    type Writer = Ansi256Writer;
     #[inline(always)]
-    fn to_repr<P: RawPixel>(p: P::Repr, a: &ColorAttributes) -> <Self::Writer as ColorWriter>::Repr {
-        P::to_24bit_color(p, a)
+    fn repr_pixel<P: RawPixel>(p: P::Repr, a: &ColorAttributes) -> <Self::Writer as AnsiColorWriter>::Repr {
+        P::to_256(p, a)
     }
 }
-pub struct Color8;
-impl AnsiColor for Color8 {
-    type Writer = ColorWriter8bit;
+pub struct GrayRgb;
+impl AnsiColor for GrayRgb {
+    type Writer = AnsiRgbWriter;
     #[inline(always)]
-    fn to_repr<P: RawPixel>(p: P::Repr, a: &ColorAttributes) -> <Self::Writer as ColorWriter>::Repr {
-        P::to_8bit_color(p, a)
+    fn repr_pixel<P: RawPixel>(p: P::Repr, a: &ColorAttributes) -> <Self::Writer as AnsiColorWriter>::Repr {
+        [P::to_luma(p, a); 3]
     }
 }
-pub struct Gray24;
-impl AnsiColor for Gray24 {
-    type Writer = ColorWriter24bit;
+pub struct Gray256;
+impl AnsiColor for Gray256 {
+    type Writer = Ansi256Writer;
     #[inline(always)]
-    fn to_repr<P: RawPixel>(p: P::Repr, a: &ColorAttributes) -> <Self::Writer as ColorWriter>::Repr {
-        P::to_24bit_gray(p, a)
+    fn repr_pixel<P: RawPixel>(p: P::Repr, a: &ColorAttributes) -> <Self::Writer as AnsiColorWriter>::Repr {
+        gray_to_256(P::to_luma(p, a))
     }
-}
-pub struct Gray8;
-impl AnsiColor for Gray8 {
-    type Writer = ColorWriter8bit;
-    #[inline(always)]
-    fn to_repr<P: RawPixel>(p: P::Repr, a: &ColorAttributes) -> <Self::Writer as ColorWriter>::Repr { P::to_8bit_gray(p, a) }
 }
 
 pub struct PixelWriter;
 impl PixelWriter {
     #[inline]
-    pub fn fg<'a, P: RawPixel, C: AnsiColor>(buf: &mut Vec<u8>, p: P::Repr, a: &ColorAttributes) { C::fg::<P>(buf, p, a) }
+    pub fn fg<'a, P: RawPixel, C: AnsiColor>(buf: &mut Vec<u8>, p: P::Repr, a: &ColorAttributes) {
+        C::fg(buf, C::repr_pixel::<P>(p, a))
+    }
     #[inline]
-    pub fn bg<'a, P: RawPixel, C: AnsiColor>(buf: &mut Vec<u8>, p: P::Repr, a: &ColorAttributes) { C::bg::<P>(buf, p, a) }
+    pub fn bg<'a, P: RawPixel, C: AnsiColor>(buf: &mut Vec<u8>, p: P::Repr, a: &ColorAttributes) {
+        C::bg(buf, C::repr_pixel::<P>(p, a))
+    }
 }

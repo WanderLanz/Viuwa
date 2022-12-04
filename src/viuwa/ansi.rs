@@ -51,25 +51,8 @@ use self::color::PixelWriter;
 use super::{ColorAttributes, ColorType, *};
 use crate::Result;
 
-macro_rules! esc {
-        ($( $l:expr ),*) => { concat!('\x1B', $( $l ),*) };
-}
-macro_rules! csi {
-        ($( $l:expr ),*) => { concat!(esc!("["), $( $l ),*) };
-}
-macro_rules! osc {
-        ($( $l:expr ),*) => { concat!(esc!("]"), $( $l ),*) };
-}
-// macro_rules! dcs {
-//         ($( $l:expr ),*) => { concat!(esc!("P"), $( $l ),*) };
-// }
-// macro_rules! apm {
-//         ($( $l:expr ),*) => { concat!(esc!("_"), $( $l ),*) };
-// }
-#[macro_export]
-macro_rules! st {
-        ($( $l:expr ),*) => { concat!($( $l ),*, esc!("\\")) };
-}
+#[macro_use]
+mod macros;
 
 #[derive(Debug, Clone, Copy)]
 struct Coord {
@@ -198,7 +181,7 @@ pub trait TerminalImpl: io::Write + Sized {
     /// Attempt to read the terminal size in characters
     #[cfg(any(windows, unix))]
     #[inline]
-    fn size(&mut self, _: bool) -> io::Result<(u16, u16)> { ::crossterm::terminal::size() }
+    fn size(&mut self) -> io::Result<(u16, u16)> { ::crossterm::terminal::size() }
     /// Attempt to read the terminal size in characters using only ANSI escape sequences
     ///
     /// It is not guaranteed to work, although more universal than a direct x-term style ANSI window size request "\x1B[18t".
@@ -206,7 +189,7 @@ pub trait TerminalImpl: io::Write + Sized {
     /// relies on the user to press enter because we cannot read stdout.
     /// WARNING: this is a blocking call
     #[cfg(target_family = "wasm")]
-    fn size(&mut self, quiet: bool) -> io::Result<(u16, u16)> {
+    fn size(&mut self) -> io::Result<(u16, u16)> {
         // if terms who don't support cursor report at least export COLUMNS and LINES, then we can use that, even if it's not accurate
         if let Ok(s) = std::env::var("COLUMNS").and_then(|cols| std::env::var("LINES").map(|lines| (cols, lines))) {
             if let (Ok(cols), Ok(lines)) = (s.0.parse(), s.1.parse()) {
@@ -214,10 +197,9 @@ pub trait TerminalImpl: io::Write + Sized {
             }
         }
         // otherwise, we can try to get the cursor position, but this is not guaranteed to work and user might have to press enter
-        if !quiet {
-            eprintln!("Requesting terminal size report, please press enter when a report appears (e.g. \"^[[40;132R\")");
-            eprintln!("If no report appears, then you may need to set --width and/or --height with --inline.");
-        }
+
+        info!("Requesting terminal size report, please press enter when a report appears (e.g. \"^[[40;132R\")");
+        info!("If no report appears, then you may need to set --width and/or --height with --inline.");
         self.cursor_save()?;
         self.cursor_to(Coord::MAX.x, Coord::MAX.y)?;
         self.write_all([term::REPORT_CURSOR_POSITION, term::RESTORE_CURSOR].concat().as_bytes())?;
@@ -237,9 +219,7 @@ pub trait TerminalImpl: io::Write + Sized {
                 return Ok((coord.x + 1, coord.y + 1));
             }
         }
-        if !quiet {
-            eprintln!("Failed to parse terminal size report, defaulting to {}x{}", crate::DEFAULT_COLS, crate::DEFAULT_ROWS);
-        }
+        error!("Failed to parse terminal size report, defaulting to {}x{}", crate::DEFAULT_COLS, crate::DEFAULT_ROWS);
         Ok((crate::DEFAULT_COLS, crate::DEFAULT_ROWS))
     }
     #[inline]
@@ -284,11 +264,11 @@ impl AnsiRow {
     pub fn clear(&mut self) { self.0.clear() }
     #[inline(always)]
     pub fn reserve_color<C: AnsiColor>(&mut self, additional: usize) {
-        self.0.reserve(additional * <C::Writer as color::ColorWriter>::RESERVE_SIZE)
+        self.0.reserve(additional * <C::Writer as color::AnsiColorWriter>::RESERVE_SIZE)
     }
     #[inline]
     pub fn with_capacity_color<C: AnsiColor>(capacity: usize) -> Self {
-        Self(Vec::with_capacity(capacity * <C::Writer as color::ColorWriter>::RESERVE_SIZE))
+        Self(Vec::with_capacity(capacity * <C::Writer as color::AnsiColorWriter>::RESERVE_SIZE))
     }
     #[inline]
     pub fn extend_fgs_bgs<P: RawPixel, C: AnsiColor>(
@@ -299,15 +279,15 @@ impl AnsiRow {
     ) {
         // unsafe { *(fg.as_ptr() as *const P::Repr) } *should* be safe to do as long as we ensure that the array is the correct size
         fgs.outer_iter().zip(bgs.outer_iter()).for_each(|(fg, bg)| {
-            PixelWriter::fg::<P, C>(&mut self.0, unsafe { *(fg.as_ptr() as *const P::Repr) }, attrs);
-            PixelWriter::bg::<P, C>(&mut self.0, unsafe { *(bg.as_ptr() as *const P::Repr) }, attrs);
+            PixelWriter::fg::<P, C>(&mut self.0, unsafe { *(fg.as_ptr().cast()) }, attrs);
+            PixelWriter::bg::<P, C>(&mut self.0, unsafe { *(bg.as_ptr().cast()) }, attrs);
             self.0.extend(crate::UPPER_HALF_BLOCK.as_bytes());
         });
     }
     #[inline]
     pub fn extend_fgs<P: RawPixel, C: AnsiColor>(&mut self, fgs: ArrayView2<u8>, attrs: &ColorAttributes) {
         fgs.outer_iter().for_each(|fg| {
-            PixelWriter::fg::<P, C>(&mut self.0, unsafe { *(fg.as_ptr() as *const P::Repr) }, attrs);
+            PixelWriter::fg::<P, C>(&mut self.0, unsafe { *(fg.as_ptr().cast()) }, attrs);
             self.0.extend(crate::UPPER_HALF_BLOCK.as_bytes());
         });
     }
@@ -328,19 +308,19 @@ macro_rules! match_color_as_C {
     ($col: expr, $f: block) => {
         match $col {
             ColorType::Color256 => {
-                type C = color::Color8;
+                type C = color::Color256;
                 $f
             }
             ColorType::Color => {
-                type C = color::Color24;
+                type C = color::ColorRgb;
                 $f
             }
             ColorType::Gray256 => {
-                type C = color::Gray8;
+                type C = color::Gray256;
                 $f
             }
             ColorType::Gray => {
-                type C = color::Gray24;
+                type C = color::GrayRgb;
                 $f
             }
         }
@@ -350,12 +330,12 @@ macro_rules! match_color_as_C {
 impl AnsiImage {
     /// Create a new AnsiImageBuffer from a given image and color type and attributes.
     pub fn new<P: Pixel>(img: &ImageBuffer<P, Vec<u8>>, color_type: &ColorType, color_attrs: &ColorAttributes) -> Self {
-        crate::timer!("AnsiImage::new");
+        trace!("AnsiImage::new");
         let size = Self::_get_size_from(img.dimensions());
         let buf = Vec::with_capacity(size.1 as usize);
         let mut ret = Self { buf, size };
         match_color_as_C!(color_type, {
-            let reserve = size.0 as usize * <<C as AnsiColor>::Writer as color::ColorWriter>::RESERVE_SIZE;
+            let reserve = size.0 as usize * <<C as AnsiColor>::Writer as color::AnsiColorWriter>::RESERVE_SIZE;
             ret.buf.resize_with(size.1 as usize, || AnsiRow::with_capacity(reserve));
             ret._fill::<P, C>(img, color_attrs);
         });
@@ -368,7 +348,7 @@ impl AnsiImage {
         color_type: &ColorType,
         color_attrs: &ColorAttributes,
     ) {
-        crate::timer!("AnsiImage::replace_image");
+        trace!("AnsiImage::replace_image");
         self.size = Self::_get_size_from(img.dimensions());
         match_color_as_C!(color_type, {
             self._pour::<C>();
@@ -389,7 +369,7 @@ impl AnsiImage {
     fn _pour<C: AnsiColor>(&mut self) {
         // clear and reserve rows already initialized within size
         let lines = self.size.1 as usize;
-        let res = self.size.0 as usize * <C::Writer as color::ColorWriter>::RESERVE_SIZE;
+        let res = self.size.0 as usize * <C::Writer as color::AnsiColorWriter>::RESERVE_SIZE;
         self.buf.iter_mut().take(lines).for_each(|s| {
             s.clear();
             s.reserve(res);

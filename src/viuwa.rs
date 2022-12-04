@@ -8,6 +8,7 @@ use image::{DynamicImage, ImageBuffer};
 
 use crate::{Args, Result};
 
+#[macro_use]
 pub mod ansi;
 pub mod resizer;
 
@@ -30,9 +31,10 @@ pub struct ColorAttributes {
 
 impl ColorAttributes {
     /// luma correct is 0..=100, 100 is the highest luma correct
-    // distance threshold = (MAX_COLOR_DISTANCE / 100) * ((100 - luma_correct)^2 / 100)
+    // for n and f(luma_correct) = ((100 - luma_correct)^n / 100^(n-1)), as n increases, the luma correct becomes less aggressive
+    // distance threshold = (MAX_COLOR_DISTANCE / 100) * ((100 - luma_correct)^3 / 100^2)
     pub fn new(luma_correct: u32) -> Self {
-        Self { luma_correct: (((100 - luma_correct).pow(2) / 100) as f32 * ansi::color::MAP_0_100_DIST) as u32 }
+        Self { luma_correct: (((100 - luma_correct).pow(3) / 10000) as f32 * ansi::color::MAP_0_100_DIST) as u32 }
     }
 }
 
@@ -96,18 +98,17 @@ pub struct Viuwa<'a, P: Pixel> {
 impl<'a, P: Pixel> Viuwa<'a, P> {
     /// Create a new viuwa instance
     pub fn new(orig: ImageBuffer<P, Vec<u8>>, args: Args) -> Result<Self> {
-        crate::timer!("Viuwa::new");
+        trace!("Viuwa::new");
         let mut lock = stdout().lock();
-        let size = lock.size(args.quiet)?;
+        let size = lock.size()?;
         let resizer = Resizer::new(orig, &args.filter, (size.0 as u32, size.1 as u32 * 2));
         let ansi = AnsiImage::new(resizer.resized(), &args.color, &ColorAttributes::new(args.luma_correct));
         Ok(Self { resizer, ansi, size, lock, args })
     }
     // seperate spawns because of resize event
     /// Start viuwa app
-    #[cfg(any(unix, windows))]
     pub fn spawn(mut self) -> Result<()> {
-        crate::timer!("Viuwa::spawn");
+        trace!("Viuwa::spawn");
         self.lock.enable_raw_mode()?;
         self.lock.enter_alt_screen()?;
         self.lock.cursor_hide()?;
@@ -295,7 +296,7 @@ impl<'a, P: Pixel> Viuwa<'a, P> {
     }
     /// Write the buffer to the terminal, and move the cursor to the bottom left
     fn _draw(&mut self) -> Result<()> {
-        crate::timer!("Viuwa::_draw");
+        trace!("Viuwa::_draw");
         self.lock.clear()?;
         let offx = (self.size.0 - self.ansi.size().0) / 2;
         let offy = (self.size.1 - self.ansi.size().1) / 2;
@@ -402,7 +403,7 @@ impl<'a, P: Pixel> Viuwa<'a, P> {
     }
     /// Rebuild the buffer with the current image, filter, and format
     fn _rebuild_buf(&mut self) {
-        crate::timer!("rebuild_buf");
+        trace!("Viuwa::_rebuild_buf");
         self.resizer.resize(self.size.0 as u32, self.size.1 as u32 * 2);
         self.ansi.replace_image(self.resizer.resized(), &self.args.color, &ColorAttributes::new(self.args.luma_correct));
     }
@@ -437,9 +438,9 @@ fn wait_for_quit() -> Result<()> {
 
 /// Print ANSI image to stdout without attempting to use alternate screen buffer or other fancy stuff
 pub fn inlined(orig: DynamicImage, args: Args) -> Result<()> {
-    crate::timer!("viuwa::inlined");
+    trace!("inlined");
     let size = match (args.width, args.height) {
-        (None, None) => stdout().size(args.quiet)?,
+        (None, None) => stdout().size()?,
         (None, Some(h)) => (crate::MAX_COLS, h),
         (Some(w), None) => (w, crate::MAX_ROWS),
         (Some(w), Some(h)) => (w, h),
@@ -463,7 +464,7 @@ pub fn inlined(orig: DynamicImage, args: Args) -> Result<()> {
 }
 /// Create a new viuwa instance
 pub fn windowed<'a>(orig: DynamicImage, args: Args) -> Result<()> {
-    crate::timer!("Viuwa::windowed");
+    trace!("windowed");
     if orig.color().has_color() {
         Viuwa::new(orig.into_rgb8(), args)?.spawn()
     } else {
