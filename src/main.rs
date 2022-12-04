@@ -370,10 +370,7 @@ fn main() -> Result<()> {
                 .or_else(|_| std::env::var("LOCALAPPDATA").map(|base| base + "/viuwa/config.toml"))
                 .or_else(|_| {
                     std::env::var("HOME").map(|base|{
-                        #[cfg(windows)]
-                        return base + "/AppData/Local/viuwa/config.toml";
-                        #[cfg(not(windows))]
-                        return base + "/.config/viuwa/config.toml";
+                        base + "/.config/viuwa/config.toml"
                     })
                 }) else {
                     warn!("Could not find config folder");
