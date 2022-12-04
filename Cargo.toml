@@ -43,7 +43,7 @@ anyhow = "1.0.*"
 crossterm = { version = "0.25.*", default-features = false }
 
 [features]
-default = ["env", "config", "rayon"]
+default = ["env", "config", "rayon", "fir"]
 # multithreading with rayon
 rayon = ["dep:rayon", "ndarray/rayon", "image/jpeg_rayon"]
 # fast image resizing with fast_image_resize and simd, takes precedence over rayon image resizing
