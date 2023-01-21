@@ -11,6 +11,24 @@ mod viuwa;
 pub use anyhow::{anyhow, bail, Context, Result};
 use viuwa::{resizer::FilterType, *};
 
+/// A threshold for warning the user that the image is too large (width * height).
+/// This is a heuristic, and is not guaranteed to be accurate.
+const IMAGE_SIZE_THRESHOLD: u32 = 3840 * 2160; // 4k
+/// A reasonable maximum width for the terminal.
+/// There *should* be noone using a terminal with a width of 1000+ characters?
+const MAX_COLS: u16 = 8192;
+/// A reasonable maximum height for the terminal.
+/// There *should* be noone using a terminal with a height of 1000+ characters?
+const MAX_ROWS: u16 = 4096;
+/// A reasonable default width for the terminal. This is used when the terminal width cannot be determined.
+#[cfg(target_family = "wasm")]
+const DEFAULT_COLS: u16 = 80;
+/// A reasonable default height for the terminal. This is used when the terminal height cannot be determined.
+#[cfg(target_family = "wasm")]
+const DEFAULT_ROWS: u16 = 24;
+// const LOWER_HALF_BLOCK: &str = "\u{2584}";
+const UPPER_HALF_BLOCK: &str = "\u{2580}";
+
 #[cfg(feature = "trace")]
 mod tracing {
     use core::mem::ManuallyDrop;
@@ -31,23 +49,6 @@ mod tracing {
 #[cfg(feature = "trace")]
 pub use tracing::*;
 
-/// A threshold for warning the user that the image is too large (width * height).
-/// This is a heuristic, and is not guaranteed to be accurate.
-const IMAGE_SIZE_THRESHOLD: u32 = 3840 * 2160; // 4k
-/// A reasonable maximum width for the terminal.
-/// There *should* be noone using a terminal with a width of 1000+ characters?
-const MAX_COLS: u16 = 8192;
-/// A reasonable maximum height for the terminal.
-/// There *should* be noone using a terminal with a height of 1000+ characters?
-const MAX_ROWS: u16 = 4096;
-/// A reasonable default width for the terminal. This is used when the terminal width cannot be determined.
-#[cfg(target_family = "wasm")]
-const DEFAULT_COLS: u16 = 80;
-/// A reasonable default height for the terminal. This is used when the terminal height cannot be determined.
-#[cfg(target_family = "wasm")]
-const DEFAULT_ROWS: u16 = 24;
-// const LOWER_HALF_BLOCK: &str = "\u{2584}";
-const UPPER_HALF_BLOCK: &str = "\u{2580}";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum LogLevel {
@@ -61,7 +62,7 @@ impl LogLevel {
     pub fn enabled(self) -> bool { LOG_LEVEL.with(|cell| cell.get() <= self) }
 }
 impl From<u8> for LogLevel {
-    fn from(v: u8) -> Self {
+    fn double(v: u8) -> Self {
         match v {
             0 => Self::Info,
             1 => Self::Warn,
@@ -206,7 +207,7 @@ impl Args {
             };
         }
         #[inline]
-        fn enum_from_str<T: ValueEnum>(s: &str) -> Result<T, String> {
+        fn enum_from_str<Scalar: ValueEnum>(s: &str) -> Result<T, String> {
             if let Ok(v) = T::from_str(s, true) {
                 Ok(v)
             } else {
@@ -305,6 +306,38 @@ fn warnings() -> Result<(), ()> {
     Ok(())
 }
 
+fn config_path() -> Option<PathBuf> {
+    std::env::current_exe().map(|p| p.canonicalize().unwrap_or(p).parent().map(|p| p.join("config.toml"))).unwrap_or_else(
+        |_| {
+            std::env::var("XDG_CONFIG_HOME")
+                .map(|p| {
+                    let mut p = PathBuf::from(p);
+                    p.push("viuwa");
+                    p.push("config.toml");
+                    p
+                })
+                .or_else(|_| {
+                    std::env::var("APPDATA").map(|p| {
+                        let mut p = PathBuf::from(p);
+                        p.push("viuwa");
+                        p.push("config.toml");
+                        p
+                    })
+                })
+                .or_else(|_| {
+                    std::env::var("HOME").map(|p| {
+                        let mut p = PathBuf::from(p);
+                        p.push(".config");
+                        p.push("viuwa");
+                        p.push("config.toml");
+                        p
+                    })
+                })
+                .ok()
+        },
+    )
+}
+
 fn main() -> Result<()> {
     #[cfg(feature = "debug")]
     {
@@ -351,33 +384,13 @@ fn main() -> Result<()> {
     'config: {
         trace!("main: config");
         use toml::value::*;
-        let config_path = if let Some(config_path) = &args.config {
+        let config_path = if let Some(ref config_path) = args.config {
             config_path.clone()
         } else {
-            let config_path;
-            #[cfg(not(target_family = "wasm"))]
-            {
-                let Some(dir) = directories::ProjectDirs::from("","","viuwa") else {
-                    info!("Could not find config");
-                    break 'config;
-                };
-                config_path = dir.config_dir().join("config.toml");
-            }
-            #[cfg(target_family = "wasm")]
-            {
-                let Ok(config_path_str) = std::env::var("XDG_CONFIG_HOME")
-                .map(|base| base + "/viuwa/config.toml")
-                .or_else(|_| std::env::var("LOCALAPPDATA").map(|base| base + "/viuwa/config.toml"))
-                .or_else(|_| {
-                    std::env::var("HOME").map(|base|{
-                        base + "/.config/viuwa/config.toml"
-                    })
-                }) else {
-                    warn!("Could not find config folder");
+            let Some(config_path) = config_path() else {
+                info!("Could not find config");
                 break 'config;
             };
-                config_path = PathBuf::from(config_path_str);
-            }
             if !config_path.is_file() {
                 info!("Could not find config");
                 break 'config;
@@ -385,17 +398,17 @@ fn main() -> Result<()> {
             config_path
         };
         let Ok(config) = std::fs::read_to_string(&config_path) else {
-            error!("Could not read config file at {:?}", &config_path);
+            error!("Could not read config file at {:#?}", &config_path);
             break 'config;
         };
         let Ok(config) = toml::from_str::<Table>(&config) else {
-            error!("Could not parse config file at {:?}", &config_path);
+            error!("Could not parse config file at {:#?}", &config_path);
             break 'config;
         };
         let errs;
         (args, errs) = args.try_merge_matches_and_toml(matches, config);
         if !errs.is_empty() {
-            error!("Failed parsing config file {:?}:", &config_path.to_str().unwrap_or(&config_path.to_string_lossy()));
+            error!("Failed parsing config file {:#?}:", &config_path);
             for err in errs {
                 for line in err.lines() {
                     eprintln!("\t{}", line);

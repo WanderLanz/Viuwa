@@ -1,0 +1,38 @@
+[package]
+name = "viuwa-ansi"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lance Warden"]
+description = "ANSI image converter and color manipulation library for the viuwa image viewer"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/WanderLanz/Viuwa/tree/main/viuwa-ansi"
+keywords = ["ansi"]
+
+[badges]
+maintenance = { status = "experimental" }
+
+[dependencies]
+bytemuck = "*"
+viuwa-image = { path = "../viuwa-image" }
+clap = { version = "4.*", optional = true, features = [
+    "std",
+    "derive",
+], default-features = false }
+image = { version = "0.24.*", default-features = false, optional = true }
+rayon = { version = "1.*", optional = true }
+ndarray = { version = "0.15.*", default-features = false, features = [] }
+# base64 = { version = "0.13.*", optional = true }
+crossterm = { version = "0.25.*", optional = true, default-features = false }
+
+[features]
+default = ["rayon", "clap"]
+# Derive clap arguments
+clap = ["dep:clap"]
+# Add image support
+image = ["dep:image", "viuwa-image/image"]
+# Multithreading with rayon
+rayon = ["dep:rayon", "viuwa-image/rayon"]
+# Crossterm for terminal manipulation
+crossterm = ["dep:crossterm"]
+# sixel = []
+# iterm = ["dep:base64"]

@@ -1,0 +1,36 @@
+[package]
+name = "viuwa-image"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lance Warden"]
+description = "basic CPU-bound image operations for viuwa"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/WanderLanz/Viuwa/tree/main/viuwa-image"
+
+[badges]
+maintenance = { status = "experimental" }
+
+[dependencies]
+num-traits = "0.2.*"
+bytemuck = { version = "1.*", features = [
+    "extern_crate_alloc",
+    "min_const_generics",
+] }
+clap = { version = "4.*", optional = true, features = [
+    "std",
+    "derive",
+], default-features = false }
+image = { version = "0.24.*", default-features = false, optional = true }
+rayon = { version = "1.*", optional = true }
+fast_image_resize = { version = "2.*", optional = true }
+
+[features]
+default = ["clap", "fir"]
+# Derive clap ValueEnum for `FilterType`
+clap = ["dep:clap"]
+# API with `image` crate
+image = ["dep:image"]
+# multithreading API with `rayon` crate, automatically used for resizing
+rayon = ["dep:rayon", "image/jpeg_rayon"]
+# fast image resizing with `fast_image_resize` crate and simd
+fir = ["dep:fast_image_resize"]

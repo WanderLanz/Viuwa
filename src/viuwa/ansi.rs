@@ -173,7 +173,7 @@ pub trait TerminalImpl: io::Write + Sized {
     fn disable_raw_mode(&mut self) -> io::Result<()> { self.write_all(term::DISABLE_RAW_MODE.as_bytes()) }
 
     /// Set the window title using ansi escape codes
-    fn set_title<T: ::std::fmt::Display>(&mut self, title: &T) -> io::Result<()> {
+    fn set_title<Scalar: ::std::fmt::Display>(&mut self, title: &T) -> io::Result<()> {
         write!(self, osc!("0;", st!("{}")), title)
     }
     /// Resize the window using ansi escape codes
@@ -423,7 +423,7 @@ impl AnsiImage {
 }
 
 impl<'a> IntoIterator for &'a AnsiImage {
-    type Item = &'a AnsiRow;
+    type Scalar = &'a AnsiRow;
     type IntoIter = core::slice::Iter<'a, AnsiRow>;
     #[inline]
     fn into_iter(self) -> Self::IntoIter { self.rows() }

@@ -2,93 +2,71 @@
 //!
 //! Use `PixelConverter` to convert pixels to ansi color sequences
 
-#[cfg(feature = "fir")]
-use fast_image_resize as fir;
-use image::{Luma, Rgb};
-
-#[cfg(feature = "fir")]
 use super::*;
-use crate::viuwa::ColorAttributes;
 
+macro_rules! color_preset_enum {
+    {
+        $(#[$meta:meta])*
+        $vis:vis enum $ident:ident {
+            $($variant:ident = $value:literal),* $(,)?
+        }
+    } => {
+        $(#[$meta])*
+        $vis enum $ident {
+            $($variant),*
+        }
+        impl $ident {
+            pub const fn fg(self) -> &'static str {
+                use $ident::*;
+                match self {
+                    $($variant => csi!($value, "m")),*
+                }
+            }
+            pub const fn bg(self) -> &'static str {
+                use $ident::*;
+                match self {
+                    $($variant => csi!($value, "m")),*
+                }
+            }
+        }
+    };
+}
+color_preset_enum! {
 #[allow(non_camel_case_types)]
 #[derive(Debug, Clone, Copy)]
 pub enum AnsiColorPresets {
-    black,
-    red,
-    green,
-    yellow,
-    blue,
-    magenta,
-    cyan,
-    white,
-    Black,
-    Red,
-    Green,
-    Yellow,
-    Blue,
-    Magenta,
-    Cyan,
-    White,
-}
-impl AnsiColorPresets {
-    pub const fn fg(self) -> &'static str {
-        use AnsiColorPresets::*;
-        match self {
-            black => csi!("30m"),
-            red => csi!("31m"),
-            green => csi!("32m"),
-            yellow => csi!("33m"),
-            blue => csi!("34m"),
-            magenta => csi!("35m"),
-            cyan => csi!("36m"),
-            white => csi!("37m"),
-            Black => csi!("90m"),
-            Red => csi!("91m"),
-            Green => csi!("92m"),
-            Yellow => csi!("93m"),
-            Blue => csi!("94m"),
-            Magenta => csi!("95m"),
-            Cyan => csi!("96m"),
-            White => csi!("97m"),
-        }
-    }
-    pub const fn bg(self) -> &'static str {
-        use AnsiColorPresets::*;
-        match self {
-            black => csi!("40m"),
-            red => csi!("41m"),
-            green => csi!("42m"),
-            yellow => csi!("43m"),
-            blue => csi!("44m"),
-            magenta => csi!("45m"),
-            cyan => csi!("46m"),
-            white => csi!("47m"),
-            Black => csi!("100m"),
-            Red => csi!("101m"),
-            Green => csi!("102m"),
-            Yellow => csi!("103m"),
-            Blue => csi!("104m"),
-            Magenta => csi!("105m"),
-            Cyan => csi!("106m"),
-            White => csi!("107m"),
-        }
-    }
-}
+    black = "30",
+    red = "31",
+    green = "32",
+    yellow = "33",
+    blue = "34",
+    magenta = "35",
+    cyan = "36",
+    white = "37",
+    Black = "90",
+    Red = "91",
+    Green = "92",
+    Yellow = "93",
+    Blue = "94",
+    Magenta = "95",
+    Cyan = "96",
+    White = "97",
+}}
 
 pub const MAX_COLOR_DISTANCE: u32 = 584_970_u32;
 pub const MAP_0_100_DIST: f32 = MAX_COLOR_DISTANCE as f32 / 100.;
 
 /// 256-color palette as 24-bit RGB values. %18.75 of 4KB.
-pub static EIGHT_BIT_PALETTE: [[u8; 3]; 256] = include!("256rgb.rs.txt");
+pub static EIGHT_BIT_PALETTE: [[u8; 3]; 256] = include!("256rgb.ron");
 
 /// Closest 256 color to a given grayscale value. %6.25 of 4KB.
 // thanks to [ansi_colours](https://crates.io/crates/ansi_colours)
 #[rustfmt::skip]
-pub static GRAY_TO_256: [u8; 256] = include!("gray256.rs.txt");
+pub static GRAY_TO_256: [u8; 256] = include!("gray256.ron");
 
 /// Static u8 format lookup table. approx 4KB on 64-bit arch.
 #[rustfmt::skip]
-pub static FMT_U8: [&'static [u8]; 256] = include!("fmt_u8.rs.txt");
+pub static FMT_U8: [&'static [u8]; 256] = include!("fmt_u8.ron");
 
 /// Get the closest 8-bit color to the given 24-bit color.
 #[inline]
@@ -134,41 +112,57 @@ pub fn rgb_in_256([r, g, b]: [u8; 3]) -> u8 {
 }
 
 #[cfg(feature = "fir")]
-fn fir_dimensions<'a, P: Pixel>(
-    img: &'a image::ImageBuffer<P, Vec<u8>>,
-) -> Result<(core::num::NonZeroU32, core::num::NonZeroU32)> {
-    match (core::num::NonZeroU32::new(img.width()), core::num::NonZeroU32::new(img.height())) {
+fn fir_dimensions<P: RawPixel>(img: ImageView<P>) -> Result<(core::num::NonZeroU32, core::num::NonZeroU32)> {
+    match (core::num::NonZeroU32::new(img.width() as u32), core::num::NonZeroU32::new(img.height() as u32)) {
         (Some(w), Some(h)) => Ok((w, h)),
         _ => Err(anyhow::anyhow!("Image dimensions are zero")),
     }
 }
 
-/// Base trait for converting a raw pixel value into an ansi color.
+/// Pixel types that can be used with this crate and `viuwa-ansi`
 pub trait RawPixel: Sized {
-    #[cfg(feature = "fir")]
-    fn fir_view<'a, P: Pixel>(img: &'a image::ImageBuffer<P, Vec<u8>>) -> Result<fir::DynamicImageView<'a>>;
-    #[cfg(feature = "fir")]
-    fn fir_view_mut<'a, P: Pixel>(img: &'a mut image::ImageBuffer<P, Vec<u8>>) -> Result<fir::DynamicImageViewMut<'a>>;
-    const CHANNELS: usize;
-    type Repr: Clone + Copy + Send + Sync + Sized;
+    /// The representation of a pixel as a flat array of scalars with length 1 to 5 (e.g. `[u8; 3]`, `[u16; 4]`, etc.)
+    type Repr: PixelRepr;
+    /// Convert a pixel to a standard 24-bit sRGB value.
     fn to_rgb(p: Self::Repr, a: &ColorAttributes) -> [u8; 3];
+    /// Convert a pixel to a grayscale value.
     fn to_luma(p: Self::Repr, a: &ColorAttributes) -> u8;
+    /// Convert a pixel to an ANSI 256-color value.
     fn to_256(p: Self::Repr, a: &ColorAttributes) -> u8;
 }
 
-impl RawPixel for Rgb<u8> {
-    #[cfg(feature = "fir")]
-    fn fir_view<'a, P: Pixel>(img: &'a image::ImageBuffer<P, Vec<u8>>) -> Result<fir::DynamicImageView<'a>> {
-        let (w, h) = fir_dimensions(img)?;
-        Ok(fir::DynamicImageView::U8x3(fir::ImageView::from_buffer(w, h, img)?))
+/// Pixel types that can be used with this crate and `viuwa-ansi`, compatible with all features.
+pub trait CompatiblePixel: RawPixel
+where
+    <Self::Repr as PixelRepr>::Scalar: CompatibleScalar,
+    Self::Repr: CompatiblePixelRepr,
+{
+}
+impl<P: RawPixel> CompatiblePixel for P
+where
+    <P::Repr as PixelRepr>::Scalar: CompatibleScalar,
+    P::Repr: CompatiblePixelRepr,
+{
+}
+
+/// Check if the pixel Repr's channel count is compatible with the pixel type in the image crate.
+#[cfg(feature = "image")]
+#[doc(hidden)]
+mod check_image_compat {
+    trait ChannelCheck: RawPixel + ::image::Pixel {
+        const CHECK: ();
     }
-    #[cfg(feature = "fir")]
-    fn fir_view_mut<'a, P: Pixel>(img: &'a mut image::ImageBuffer<P, Vec<u8>>) -> Result<fir::DynamicImageViewMut<'a>> {
-        let (w, h) = fir_dimensions(img)?;
-        Ok(fir::DynamicImageViewMut::U8x3(fir::ImageViewMut::from_buffer(w, h, img)?))
+    impl<P: RawPixel + ::image::Pixel> ChannelCheck for P {
+        const CHECK: () = {
+            if <P as ::image::Pixel>::CHANNEL_COUNT as usize != <P as RawPixel>::CHANNELS {
+                panic!("image::Pixel and RawPixel::Repr have different channel counts, perhaps you need to implement RawPixel for your own pixel type.");
+            }
+        };
     }
-    const CHANNELS: usize = 3;
-    type Repr = [u8; 3];
+}
+
+impl<T: Scalar> RawPixel for Rgb<T> {
+    type Repr = [T; 3];
     #[inline(always)]
     fn to_rgb(p: Self::Repr, _a: &ColorAttributes) -> [u8; 3] { p }
     #[inline(always)]
@@ -177,29 +171,18 @@ impl RawPixel for Rgb<u8> {
     fn to_256(p: Self::Repr, a: &ColorAttributes) -> u8 { rgb_to_256(p, a) }
 }
 
-impl RawPixel for Luma<u8> {
-    #[cfg(feature = "fir")]
-    fn fir_view<'a, P: Pixel>(img: &'a image::ImageBuffer<P, Vec<u8>>) -> Result<fir::DynamicImageView<'a>> {
-        let (w, h) = fir_dimensions(img)?;
-        Ok(fir::DynamicImageView::U8(fir::ImageView::from_buffer(w, h, img)?))
-    }
-    #[cfg(feature = "fir")]
-    fn fir_view_mut<'a, P: Pixel>(img: &'a mut image::ImageBuffer<P, Vec<u8>>) -> Result<fir::DynamicImageViewMut<'a>> {
-        let (w, h) = fir_dimensions(img)?;
-        Ok(fir::DynamicImageViewMut::U8(fir::ImageViewMut::from_buffer(w, h, img)?))
-    }
-    const CHANNELS: usize = 1;
-    type Repr = u8;
+impl<T: Scalar> RawPixel for Luma<T> {
+    type Repr = [T; 1];
     #[inline(always)]
-    fn to_rgb(p: Self::Repr, _a: &ColorAttributes) -> [u8; 3] { [p; 3] }
+    fn to_rgb([p]: Self::Repr, _a: &ColorAttributes) -> [u8; 3] { [p; 3] }
     #[inline(always)]
-    fn to_luma(p: Self::Repr, _a: &ColorAttributes) -> u8 { p }
+    fn to_luma([p]: Self::Repr, _a: &ColorAttributes) -> u8 { p }
     #[inline(always)]
-    fn to_256(p: Self::Repr, _a: &ColorAttributes) -> u8 { gray_to_256(p) }
+    fn to_256([p]: Self::Repr, _a: &ColorAttributes) -> u8 { gray_to_256(p) }
 }
 
 pub trait AnsiColorWriter {
-    /// Reserve space for 2 color sequences + 1 character.
+    /// Reserve space for 2 color sequences (fg+bg) and 1 display character.
     const RESERVE_SIZE: usize;
     /// The representation of pixel data for this writer.
     type Repr: Clone + Copy + Send + Sync + Sized;
@@ -207,7 +190,7 @@ pub trait AnsiColorWriter {
     fn bg(buf: &mut Vec<u8>, val: Self::Repr);
 }
 
-// extend_from_slice([u8;1]) instead of push(u8) when you can is faster for some reason when I benchmarked it, some optimizations I guess
+// extend_from_slice([u8;1]) instead of push(u8) when you can is faster for some reason when I benchmarked it, some loop optimizations I guess
 #[inline]
 fn seq24(buf: &mut Vec<u8>, [r, g, b]: [u8; 3], inducer: &[u8]) {
     buf.extend_from_slice(inducer);

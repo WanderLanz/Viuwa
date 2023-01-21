@@ -1,0 +1,50 @@
+[package]
+name = "viuwa-lib"
+version = "0.1.0"
+edition = "2021"
+authors = ["Lance Warden"]
+description = "Backend library for viuwa as a separate crate"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/WanderLanz/Viuwa"
+keywords = ["image-viewer", "ansi"]
+
+[badges]
+maintenance = { status = "experimental" }
+
+[dependencies]
+num-traits = "0.2.*"
+image = { version = "0.24.*", default-features = false, features = [
+    "gif",
+    "jpeg",
+    "ico",
+    "png",
+    "pnm",
+    "tga",
+    "tiff",
+    "webp",
+    "bmp",
+    "hdr",
+    "dxt",
+    "dds",
+    "farbfeld",
+    "openexr",
+] }
+rayon = { version = "1.6.*", optional = true }
+fast_image_resize = { version = "2.4.*", optional = true }
+ndarray = { version = "0.15.*", default-features = false, features = [] }
+anyhow = "1.0.*"
+tracing = "0.1.*"
+# base64 = { version = "0.13.*", optional = true }
+crossterm = { version = "0.25.*", optional = true, default-features = false }
+
+[features]
+default = ["rayon", "fir"]
+# default = ["rayon"]
+# multithreading with rayon
+rayon = ["dep:rayon", "ndarray/rayon", "image/jpeg_rayon"]
+# fast image resizing with fast_image_resize and simd, takes precedence over rayon image resizing
+fir = ["dep:fast_image_resize"]
+# crossterm for terminal manipulation
+crossterm = ["dep:crossterm"]
+# sixel = []
+# iterm = ["dep:base64"]

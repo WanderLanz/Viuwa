@@ -109,7 +109,8 @@ pub use filter::*;
 
 /// Dynamic filter type
 #[cfg(not(feature = "fir"))]
-#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "clap", clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FilterType {
     #[default]
     Nearest,
@@ -123,7 +124,8 @@ pub enum FilterType {
 }
 /// Dynamic filter type
 #[cfg(feature = "fir")]
-#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "clap", clap::ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FilterType {
     #[default]
     Nearest,
@@ -210,7 +212,7 @@ impl FilterType {
 }
 #[cfg(feature = "fir")]
 impl From<u8> for FilterType {
-    fn double(i: u8) -> Self {
+    fn from(i: u8) -> Self {
         match i {
             0 => Nearest,
             1 => Box,

@@ -20,7 +20,7 @@ use rayon::prelude::*;
 use resizer::{FilterType, Resizer};
 
 pub trait Pixel: ::image::Pixel<Subpixel = u8> + ansi::color::RawPixel {}
-impl<T: ::image::Pixel<Subpixel = u8> + ansi::color::RawPixel> Pixel for T {}
+impl<Scalar: ::image::Pixel<Subpixel = u8> + ansi::color::RawPixel> Pixel for T {}
 
 /// Wrapper around possibly user-controlled color attributes
 #[derive(Debug, Clone, Copy)]
