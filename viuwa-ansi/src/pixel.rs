@@ -1,3 +1,17 @@
+//! Core module for any image or pixel related functionality.
+//!
+//! For users of this crate, you only have to implementing the [`AnsiPixel`] trait to use [`AnsiImage`](super::image::AnsiImage) or [`AnsiImageIter`](super::image::AnsiImageIter).
+//!
+//! Any type implementing [`AnsiPixel`] can be converted into an ANSI sequence representing a [`ColorType`] as
+//! a foreground or background color using a [`Converter`].
+//!
+//! A [`Converter`] is a trait that converts any [`AnsiPixel`] into ANSI sequences using a [`Sequencer`],
+//! and each [`Converter`] converts to a singular [`ColorType`]. (e.g. [`ColorConverter`] converts an [`AnsiPixel`] to ANSI representing [`ColorType::Color`])
+//!
+//! A [`Sequencer`] is a trait that converts raw representable foreground and/or background color channels into ANSI sequences.
+//! A [`RgbSequencer`] is a [`Sequencer`] that converts 24-bit (RGB) colors into ANSI sequences.
+//! An [`AnsiSequencer`] is a [`Sequencer`] that converts 8-bit (ANSI 256) colors into ANSI sequences.
+//!
 use ::core::mem::transmute;
 use viuwa_image::*;
 
@@ -22,14 +36,10 @@ pub trait Sequencer: Sealed {
     type Half: Bytes;
     /// A full foreground and background color sequence.
     type Full: Bytes;
-    /// The [`Half`](Sequencer::Half) sequence and a [`CharBytes`] in bytes. (sequence + 4 u8's)
+    /// The [`Half`](Sequencer::Half) sequence and a [`Char`] in bytes. (sequence + 4 u8's)
     type HalfChar: Bytes;
-    /// The [`Full`](Sequencer::Full) sequence and a [`CharBytes`] in bytes. (sequence + 4 u8's)
+    /// The [`Full`](Sequencer::Full) sequence and a [`Char`] in bytes. (sequence + 4 u8's)
     type FullChar: Bytes;
-    /// The size of a [`Single`](Sequencer::Single) sequence in bytes.
-    const SINGLE_SIZE: usize;
-    /// The size of a [`Full`](Sequencer::Full) sequence in bytes.
-    const FULL_SIZE: usize;
     /// Convert a raw foreground color into an ANSI sequence.
     fn fg(raw: Self::Raw) -> Self::Half;
     /// Convert a raw background color into an ANSI sequence.
@@ -59,8 +69,6 @@ impl Sequencer for RgbSequencer {
     type Full = [u8; 36];
     type HalfChar = [u8; 23];
     type FullChar = [u8; 40];
-    const SINGLE_SIZE: usize = 19;
-    const FULL_SIZE: usize = 36;
     #[inline]
     fn fg(raw: Self::Raw) -> Self::Half {
         let [r, g, b] = raw.map(fmt_u8);
@@ -87,8 +95,6 @@ impl Sequencer for AnsiSequencer {
     type Full = [u8; 20];
     type HalfChar = [u8; 15];
     type FullChar = [u8; 24];
-    const SINGLE_SIZE: usize = 11;
-    const FULL_SIZE: usize = 20;
     #[inline]
     fn fg(raw: Self::Raw) -> Self::Half { unsafe { transmute((CSI, FG8, fmt_u8(raw), b'm')) } }
     #[inline]
@@ -106,17 +112,17 @@ pub trait Converter: Sealed {
     /// Convert a pixel into raw color channels that can be used by the [`Sequencer`].
     fn convert<P: AnsiPixel>(pixel: P::Repr, attributes: ColorAttributes) -> <Self::Sequencer as Sequencer>::Raw;
     /// Convert a pixel into a foreground color sequence.
-    #[inline]
+    #[inline(always)]
     fn fg<P: AnsiPixel>(pixel: P::Repr, attributes: ColorAttributes) -> <Self::Sequencer as Sequencer>::Half {
         Self::Sequencer::fg(Self::convert::<P>(pixel, attributes))
     }
     /// Convert a pixel into a background color sequence.
-    #[inline]
+    #[inline(always)]
     fn bg<P: AnsiPixel>(pixel: P::Repr, attributes: ColorAttributes) -> <Self::Sequencer as Sequencer>::Half {
         Self::Sequencer::bg(Self::convert::<P>(pixel, attributes))
     }
     /// Convert pixels into a foreground and background color sequence.
-    #[inline]
+    #[inline(always)]
     fn full<P: AnsiPixel>(fg: P::Repr, bg: P::Repr, attributes: ColorAttributes) -> <Self::Sequencer as Sequencer>::Full {
         Self::Sequencer::full(Self::convert::<P>(fg, attributes), Self::convert::<P>(bg, attributes))
     }
@@ -126,7 +132,7 @@ pub struct ColorConverter;
 impl Sealed for ColorConverter {}
 impl Converter for ColorConverter {
     type Sequencer = RgbSequencer;
-    #[inline]
+    #[inline(always)]
     fn convert<P: AnsiPixel>(p: P::Repr, a: ColorAttributes) -> <Self::Sequencer as Sequencer>::Raw { P::to_rgb(p, a) }
 }
 /// Converter to 8-bit (ANSI 256) color.
@@ -134,7 +140,7 @@ pub struct AnsiColorConverter;
 impl Sealed for AnsiColorConverter {}
 impl Converter for AnsiColorConverter {
     type Sequencer = AnsiSequencer;
-    #[inline]
+    #[inline(always)]
     fn convert<P: AnsiPixel>(p: P::Repr, a: ColorAttributes) -> <Self::Sequencer as Sequencer>::Raw { P::to_256(p, a) }
 }
 /// Converter to 24-bit (RGB) grayscale colors.
@@ -142,7 +148,7 @@ pub struct GrayConverter;
 impl Sealed for GrayConverter {}
 impl Converter for GrayConverter {
     type Sequencer = RgbSequencer;
-    #[inline]
+    #[inline(always)]
     fn convert<P: AnsiPixel>(p: P::Repr, a: ColorAttributes) -> <Self::Sequencer as Sequencer>::Raw { [P::to_luma(p, a); 3] }
 }
 /// Converter to 8-bit (ANSI 256) grayscale colors.
@@ -150,7 +156,7 @@ pub struct AnsiGrayConverter;
 impl Sealed for AnsiGrayConverter {}
 impl Converter for AnsiGrayConverter {
     type Sequencer = AnsiSequencer;
-    #[inline]
+    #[inline(always)]
     fn convert<P: AnsiPixel>(p: P::Repr, a: ColorAttributes) -> <Self::Sequencer as Sequencer>::Raw {
         gray_to_ansi(P::to_luma(p, a))
     }
@@ -169,70 +175,76 @@ pub trait AnsiPixel: Pixel {
 /// Predefined 24-bit RGB pixel usable with a [`Converter`]
 pub struct ColorPixel;
 impl Pixel for ColorPixel {
+    type Scalar = u8;
     type Repr = [u8; 3];
 }
 impl AnsiPixel for ColorPixel {
-    #[inline]
-    fn to_rgb(p: Self::Repr, _a: ColorAttributes) -> [u8; 3] { p }
-    #[inline]
-    fn to_luma(p: Self::Repr, a: ColorAttributes) -> u8 { luma(p) }
-    #[inline]
+    #[inline(always)]
+    fn to_rgb(p: Self::Repr, _: ColorAttributes) -> [u8; 3] { p }
+    #[inline(always)]
+    fn to_luma(p: Self::Repr, _: ColorAttributes) -> u8 { luma(p) }
+    #[inline(always)]
     fn to_256(p: Self::Repr, a: ColorAttributes) -> u8 { rgb_to_ansi(p, a) }
 }
 /// Predefined 8-bit (ANSI 256) color pixel usable with a [`Converter`]
 pub struct AnsiColorPixel;
 impl Pixel for AnsiColorPixel {
+    type Scalar = u8;
     type Repr = u8;
 }
 impl AnsiPixel for AnsiColorPixel {
-    #[inline]
-    fn to_rgb(p: Self::Repr, a: ColorAttributes) -> [u8; 3] { ANSI_PALETTE[p as usize] }
-    #[inline]
-    fn to_luma(p: Self::Repr, a: ColorAttributes) -> u8 { luma(ANSI_PALETTE[p as usize]) }
-    #[inline]
-    fn to_256(p: Self::Repr, _a: ColorAttributes) -> u8 { p }
+    #[inline(always)]
+    fn to_rgb(p: Self::Repr, _: ColorAttributes) -> [u8; 3] { ansi_to_rgb(p) }
+    #[inline(always)]
+    fn to_luma(p: Self::Repr, _: ColorAttributes) -> u8 { luma(ansi_to_rgb(p)) }
+    #[inline(always)]
+    fn to_256(p: Self::Repr, _: ColorAttributes) -> u8 { p }
 }
 /// Predefined 24-bit grayscale pixel usable with a [`Converter`]
 pub struct GrayPixel;
 impl Pixel for GrayPixel {
+    type Scalar = u8;
     type Repr = u8;
 }
 impl AnsiPixel for GrayPixel {
-    #[inline]
-    fn to_rgb(p: Self::Repr, a: ColorAttributes) -> [u8; 3] { [p, p, p] }
-    #[inline]
-    fn to_luma(p: Self::Repr, _a: ColorAttributes) -> u8 { p }
-    #[inline]
-    fn to_256(p: Self::Repr, a: ColorAttributes) -> u8 { gray_to_ansi(p) }
+    #[inline(always)]
+    fn to_rgb(p: Self::Repr, _: ColorAttributes) -> [u8; 3] { [p; 3] }
+    #[inline(always)]
+    fn to_luma(p: Self::Repr, _: ColorAttributes) -> u8 { p }
+    #[inline(always)]
+    fn to_256(p: Self::Repr, _: ColorAttributes) -> u8 { gray_to_ansi(p) }
 }
 /// Predefined 8-bit (ANSI 256) grayscale pixel usable with a [`Converter`]
 pub struct AnsiGrayPixel;
 impl Pixel for AnsiGrayPixel {
+    type Scalar = u8;
     type Repr = u8;
 }
 impl AnsiPixel for AnsiGrayPixel {
-    #[inline]
-    fn to_rgb(p: Self::Repr, a: ColorAttributes) -> [u8; 3] { ANSI_PALETTE[p as usize] }
-    #[inline]
-    fn to_luma(p: Self::Repr, _a: ColorAttributes) -> u8 { p }
-    #[inline]
-    fn to_256(p: Self::Repr, _a: ColorAttributes) -> u8 { p }
+    #[inline(always)]
+    fn to_rgb(p: Self::Repr, _: ColorAttributes) -> [u8; 3] { ansi_to_rgb(p) }
+    #[inline(always)]
+    fn to_luma(p: Self::Repr, _: ColorAttributes) -> u8 { p }
+    #[inline(always)]
+    fn to_256(p: Self::Repr, _: ColorAttributes) -> u8 { p }
 }
 
 #[cfg(feature = "image")]
 mod compat_image {
-    use image::{Luma, Rgb};
+    use ::image::{Luma, Rgb};
 
     use super::*;
-    impl<T: Scalar> AnsiPixel for Rgb<T> {
+
+    // We can only guarantee the expected behavior of Pixel<u8>
+    impl AnsiPixel for Rgb<u8> {
         #[inline(always)]
-        fn to_rgb(p: Self::Repr, _a: ColorAttributes) -> [u8; 3] { p }
+        fn to_rgb(p: Self::Repr, _: ColorAttributes) -> [u8; 3] { p }
         #[inline(always)]
-        fn to_luma(p: Self::Repr, _a: ColorAttributes) -> u8 { luma(p) }
+        fn to_luma(p: Self::Repr, _: ColorAttributes) -> u8 { luma(p) }
         #[inline(always)]
         fn to_256(p: Self::Repr, a: ColorAttributes) -> u8 { rgb_to_ansi(p, a) }
     }
-    impl<T: Scalar> AnsiPixel for Luma<T> {
+    impl AnsiPixel for Luma<u8> {
         #[inline(always)]
         fn to_rgb(p: Self::Repr, _: ColorAttributes) -> [u8; 3] { [p; 3] }
         #[inline(always)]

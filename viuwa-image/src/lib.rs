@@ -6,6 +6,9 @@ use ::rayon::prelude::*;
 // so that users can use specific functionality if necessary.
 // Undocumented functionality is better than functionality that is visible but not usable.
 
+#[macro_use]
+mod macros;
+
 mod private {
     /// Sealed trait to prevent external implementations of traits
     pub trait Sealed {}
@@ -24,13 +27,12 @@ pub use crate::image::*;
 mod pixel;
 pub use crate::pixel::*;
 
-/// The maximum size of an image (in bytes) that can be processed safely by this library. (4GB)
+/// The maximum size of an image (in bytes) that is processed by this library.
 ///
 /// This is an implementation detail for [`viuwa`](https://docs.rs/viuwa/latest/viuwa/).
-///
-/// If you need to process larger images, you can use unsafe methods or use `from_raw`.
+/// sorry for the inconvenience, maybe it will be removed in the future, even if 4GB is likely to be enough for everyone.
 pub const MAX_IMAGE_SIZE: usize = u32::MAX as usize;
 
-/// The type of coefficients (float) used for weights in default sampling
+/// The type of coefficients (float) used for weights in default sampling, eventually removed once it's decided
 #[doc(hidden)]
 pub type Weight = f32; // | f64;

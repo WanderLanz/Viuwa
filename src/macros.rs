@@ -1,5 +1,5 @@
 //! Logging, Debugging, Tracing, and Utility Macros
-// probaly should just use the log crate instead of this but I'm lazy
+// probaly should just use a log crate instead of this but I'm lazy in a bad way
 
 macro_rules! log {
     ([$($tag_args:expr),+] $arg_literal:literal$(,$args:expr)*) => {
@@ -82,30 +82,9 @@ mod tracing {
     }
 }
 
-/// A simple and unsafe foot-gun macro that creates a new uninitialized variable.
-/// Useful for unsafe write-before-read optimizations, avoiding memset and other unnecessary work.
-///
-/// # Example
-/// ```
-/// use crate::uninit;
-/// fn main() {
-///     let mut x: Vec<u32> = Vec::with_capacity(100);
-///     x.resize(100, uninit!());
-///     // x is now a Vec<u32> with 100 uninitialized elements
-///
-///     // which is the same as, and will *probably* get optimized to the same as:
-///     let mut x: Vec<u32> = Vec::with_capacity(100);
-///     unsafe { x.set_len(100) };
-/// }
-/// ```
-/// # Safety
-/// The variable must be initialized before it is read from.
-#[macro_export]
-macro_rules! uninit {
-    () => {
-        #[allow(invalid_value)]
-        unsafe {
-            ::core::mem::MaybeUninit::uninit().assume_init()
-        }
+/// Macro for executing a series of fallible functions on an stdout with a generic error msg
+macro_rules! execute_stdout {
+    ($i:expr, $($f:ident($($a:expr),*)),+) => {
+        execute!($i, $($f($($a),*)),+).expect("unexpectedly failed to print to stdout")
     };
 }

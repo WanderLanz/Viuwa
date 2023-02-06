@@ -1,8 +1,22 @@
 # viuwa-ansi
 
-Best attempt to make an pure ANSI module for all platforms for viuwa
+ANSI library for viuwa
 
-for reference (`{x}` represent a variable):
+- `AnsiImage` for converting images to ANSI escape sequences
+- `Terminal` trait for interacting with the terminal.
+- ANSI escape sequence constants in the `consts` module
+- ANSI foreground and background colors and escape sequences
+
+## Features
+
+- `image` - Enables some bare minimum support for `image` crate pixels
+- `clap` - Derives `ValueEnum` for some Color types
+- `rayon` - Enables some API to work with `rayon` crate
+- `crossterm` - Replaces some troublesome/non-universal ANSI commands with `crossterm` crate implementations
+
+## Reference
+
+(`{x}` represent a variable)
 
 - ESC = escape = `"\x1B"`
 - ST = string terminator = `"\x1B\\"`
@@ -11,8 +25,6 @@ for reference (`{x}` represent a variable):
 - DCS = device control string = `"\x1BP"`
 - APM = application program mode = `"\x1B_"`
 - SGR = select graphic rendition = `"\x1B[{x}m"`
-
-## References
 
 - vt100:
   - <https://vt100.net/docs/vt100-ug/contents.html>
@@ -41,3 +53,7 @@ for reference (`{x}` represent a variable):
   - <https://vt100.net/docs/vt510-rm/sixel.html>
 - 256 colors:
   - <https://robotmoon.com/256-colors>
+
+## Contributing
+
+You are free and welcome to contribute to this project. Please read [CONTRIBUTING.md](../CONTRIBUTING.md) for more information.

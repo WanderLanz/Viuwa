@@ -19,7 +19,7 @@ color = "256gray"
 
 # Luma correction exclusively for "256" color mode
 # 0 to 100 (default: 100)
-luma_correct = 0
+luma-correct = 0
 
 # Display the ANSI image inline (don't open alternate screen)
 # true or false (default: false)

@@ -27,13 +27,33 @@
 // NOTE: More complicated than necessary for compatibility (the `fast_image_resize` crate uses a private trait for convolution),
 // this is functionally actually very simple, don't think about it too much.
 
-// Why not implement SIMD ourselves? Because it's a lot of work, Kirill (@Cykooz) and the team have done a fine job, and we don't need to.
-
-// Why not just use nightly? Because we don't want to force nightly on users.
-
-// Solution: Just deal with compatibility.
-
 use super::*;
+
+macro_rules! as_scalar {
+    (fn $($T:ident),+) => {
+        $(
+            fn $T(self) -> $T;
+        )+
+    };
+    (impl fn $($T:ident),+) => {
+        $(
+            #[inline(always)]
+            fn $T(self) -> $T { self as $T }
+        )+
+    };
+    (impl $($T:ty),+) => {
+        $(
+            impl AsScalar for $T {
+                as_scalar!(impl fn u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64);
+            }
+        )+
+    };
+}
+/// Direct cast any scalar into any scalar type T: ```self as T```
+pub trait AsScalar {
+    as_scalar!(fn u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64);
+}
+as_scalar!(impl u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64);
 
 macro_rules! def_Scalar {
     ($(+ $t:path),*) => {
@@ -46,6 +66,8 @@ macro_rules! def_Scalar {
         ///     let _: i32 = 0u8.as_();
         /// }
         /// ```
+        ///
+        /// Not implementable because rust constraints are still lacking.
         pub trait Scalar:
             'static
             + Sealed
@@ -54,11 +76,9 @@ macro_rules! def_Scalar {
             + Send
             + Sync
             + Sized
+            + AsScalar
             + ::bytemuck::Pod
-            + ::num_traits::Num
             + ::num_traits::NumAssignRef
-            + ::num_traits::NumCast
-            + ::num_traits::ToPrimitive
             $(+ $t)*
         {
             /// The `0` value of this scalar type
@@ -87,15 +107,19 @@ mod compat_image {
     use super::*;
     def_Scalar!(+ ::image::Primitive);
     impl<T: Scalar> Pixel for ::image::Rgb<T> {
+        type Scalar = T;
         type Repr = [T; 3];
     }
     impl<T: Scalar> Pixel for ::image::Luma<T> {
+        type Scalar = T;
         type Repr = T;
     }
     impl<T: Scalar> Pixel for ::image::Rgba<T> {
+        type Scalar = T;
         type Repr = [T; 4];
     }
     impl<T: Scalar> Pixel for ::image::LumaA<T> {
+        type Scalar = T;
         type Repr = [T; 2];
     }
 }
@@ -128,16 +152,16 @@ mod compat_fir {
     impl_CompatPixelRepr!(u8, u16, i32, f32);
     impl_CompatPixelRepr!([u8,u16,i32,f32; 1], [u8,u16; 2], [u8,u16; 3], [u8,u16; 4]);
 
-    /// Pixel types that can be used with this crate and `viuwa-ansi`, compatible with all features.
+    /// Pixel types compatible with all features.
     pub trait CompatPixel: Pixel
     where
-        <Self::Repr as PixelRepr>::Scalar: CompatScalar,
+        Self::Scalar: CompatScalar,
         Self::Repr: CompatPixelRepr,
     {
     }
     impl<P: Pixel> CompatPixel for P
     where
-        <P::Repr as PixelRepr>::Scalar: CompatScalar,
+        P::Scalar: CompatScalar,
         P::Repr: CompatPixelRepr,
     {
     }
@@ -165,12 +189,12 @@ mod compat_fir {
     where
         Self::Scalar: CompatScalar,
     {
-        /// Internal function for converting an image to a `DynamicImageView` for use with `fast_image_resize`.
+        /// Convert an image to a `DynamicImageView` for use with `fast_image_resize`.
         fn fir_view<'a, P: Pixel<Repr = Self>>(image: ImageView<'a, P>) -> DynamicImageView<'a>;
-        /// Internal function for converting an image to a `DynamicImageView` for use with `fast_image_resize`.
+        /// Convert an image to a `DynamicImageView` for use with `fast_image_resize`.
         fn fir_view_mut<'a, P: Pixel<Repr = Self>>(image: ImageViewMut<'a, P>) -> DynamicImageViewMut<'a>;
     }
-    /// Simply because `fast_image_resize` doesn't expose the `Convolution` trait
+    /// Because `fast_image_resize` doesn't expose the `Convolution` trait
     macro_rules! impl_CompatPixelRepr {
         ($([$T:ty; $N:literal] => $P:ident),+ $(,)?) => {
             $(
@@ -230,19 +254,19 @@ mod compat_fir {
     /// Pixel types that can be used with this crate and `viuwa-ansi`, compatible with all features.
     pub trait CompatPixel: Pixel
     where
-        <Self::Repr as PixelRepr>::Scalar: CompatScalar,
+        Self::Scalar: CompatScalar,
         Self::Repr: CompatPixelRepr,
     {
-        /// Internal function for converting an image to a `DynamicImageView` for use with `fast_image_resize`.
+        /// Convert an image to a `DynamicImageView` for use with `fast_image_resize`.
         #[inline(always)]
         fn fir_view<'a>(image: ImageView<'a, Self>) -> DynamicImageView<'a> { Self::Repr::fir_view(image) }
-        /// Internal function for converting an image to a `DynamicImageView` for use with `fast_image_resize`.
+        /// Convert an image to a `DynamicImageView` for use with `fast_image_resize`.
         #[inline(always)]
         fn fir_view_mut<'a>(image: ImageViewMut<'a, Self>) -> DynamicImageViewMut<'a> { Self::Repr::fir_view_mut(image) }
     }
     impl<P: Pixel> CompatPixel for P
     where
-        <P::Repr as PixelRepr>::Scalar: CompatScalar,
+        P::Scalar: CompatScalar,
         P::Repr: CompatPixelRepr,
     {
     }
@@ -294,18 +318,23 @@ pub trait PixelRepr: 'static + Sealed + Clone + Copy + Send + Sync + Sized + ::b
     ///
     /// *Workaround for const generics not being available in trait bounds
     const CHANNELS: usize;
-    /// The repr with each scalar as 0
+    /// The repr with each scalar as 0 (additive identity)
     const ZERO: Self;
-    /// The repr with each scalar as 1
+    /// The repr with each scalar as 1 (multiplicative identity)
     const ONE: Self;
-    /// Appropriately sized weights for the pixel, convenience to avoid unsafe code
+    /// Appropriately sized weights repr for the pixel, to avoid unsafe code and optimize when sampling
     type Weights: PixelRepr<Scalar = Weight>;
-    /// Returns a slice of the pixel's scalars
+    /// Self as slice of scalars
     #[inline(always)]
     fn as_slice(&self) -> &[<Self as PixelRepr>::Scalar] {
         unsafe { &*::core::ptr::slice_from_raw_parts(self as *const Self as *const _, Self::CHANNELS) }
     }
-    /// Returns a mutable slice of the pixel's scalars
+    /// Self as bytes
+    #[inline(always)]
+    fn as_bytes(&self) -> &[u8] {
+        unsafe { &*::core::ptr::slice_from_raw_parts(self as *const Self as *const _, ::core::mem::size_of::<Self>()) }
+    }
+    /// Self as mutable slice of scalars
     #[inline(always)]
     fn as_slice_mut(&mut self) -> &mut [<Self as PixelRepr>::Scalar] {
         unsafe { &mut *::core::ptr::slice_from_raw_parts_mut(self as *mut Self as *mut _, Self::CHANNELS) }
@@ -328,15 +357,13 @@ impl<T: Scalar> PixelRepr for T {
 }
 
 /// The building block of the crate, a pixel type that has a `Repr` that defines how this crate represents it
-///
-/// To access the associated types and constants of your `Repr`, you need to use specifiers like this:
-/// ```
-/// <<MyPixel as Pixel>::Repr as PixelRepr>::Scalar
-/// ```
-/// because Rust does not support default associated types yet (in stable).
 pub trait Pixel: Sized {
-    /// The representation of a pixel as a flat array of scalars with length 1 to 5 (e.g. `[u8; 3]`, `[u16; 4]`, etc.) or a scalar (e.g. `u8`, `f32`, etc.)
-    type Repr: PixelRepr;
-    /// The default repr to use when creating new images, defaults to [`PixelRepr::ZERO`]
+    /// The scalar type of the channels of this pixel (e.g. `u8`, `f32`, etc.)
+    type Scalar: Scalar;
+    /// The representation of the pixel as a flat array of scalars (e.g. `[u8; 3]`, `[u16; 4]`, etc.) or a scalar (e.g. `u8`, `f32`, etc.)
+    type Repr: PixelRepr<Scalar = <Self as Pixel>::Scalar>;
+    /// The default repr to use when creating new images, defaults to [`PixelRepr::ZERO`].
+    ///
+    /// This is to reserve `Default` trait for your pixels to use how you please.
     const DEFAULT: Self::Repr = Self::Repr::ZERO;
 }

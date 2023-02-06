@@ -1,4 +1,6 @@
 //! Image filters and kernels
+use std::str::FromStr;
+
 use crate::Weight;
 
 const PI: Weight = ::std::f64::consts::PI as Weight;
@@ -119,28 +121,54 @@ pub static FILTER_MITCHELL: Filter = Filter { kernel: mitchell_netravali_kernel,
 pub static FILTER_LANCZOS3: Filter = Filter { kernel: lanczos3_kernel, support: 3. };
 
 /// Dynamic filter type, also implements From<u8>
-#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord, Hash)]
 #[repr(u8)]
+// "lowest", "low", "medium-low", "medium", "medium-high", "high", "highest" are heuristics, doesn't actually imply much about the filter
 pub enum FilterType {
     /// Nearest neighbor filter, no interpolation
     #[default]
     Nearest,
-    /// Box filter, also known as average filter
+    /// Box filter
     Box,
-    /// Triangle filter, also known as linear filter
+    /// Triangle filter
     Triangle,
-    /// Hamming filter, also known as cosine filter
+    /// Hamming filter
     Hamming,
-    // Catmull-Rom filter, the standard cubic filter
+    // Catmull-Rom filter
     Catmull,
-    /// Mitchell-Netravali filter, a better quality cubic filter
+    /// Mitchell-Netravali filter
     Mitchell,
-    // Gaussian,
-    /// Lanczos3 filter, a high quality filter (highest quality we provide)
+    /// Lanczos3 filter
     Lanczos,
 }
 use FilterType::*;
+#[cfg(feature = "parse")]
+impl FromStr for FilterType {
+    type Err = String;
+    #[inline]
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "nearest" | "none" | "point" | "lowest" => Ok(Nearest),
+            "box" | "avg" | "average" | "low" => Ok(Box),
+            "triangle" | "linear" | "medium-low" => Ok(Triangle),
+            "hamming" | "cosine" | "medium" => Ok(Hamming),
+            "catmull" | "catmull-rom" | "cubic" | "medium-high" => Ok(Catmull),
+            "mitchell" | "mitchell-netravali" | "high" => Ok(Mitchell),
+            "lanczos3" | "lanczos" | "highest" => Ok(Lanczos),
+            _ => Err(format!("{s:?} is not a valid FilterType")),
+        }
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> ::serde::Deserialize<'de> for FilterType {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?.parse().map_err(::serde::de::Error::custom)
+    }
+}
 impl FilterType {
     /// Get the static filter for this type
     #[inline]
@@ -202,6 +230,7 @@ impl FilterType {
     }
 }
 impl From<u8> for FilterType {
+    #[inline]
     fn from(i: u8) -> Self {
         if i > 6 {
             Nearest

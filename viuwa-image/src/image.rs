@@ -8,21 +8,6 @@ use ::core::{
 
 use super::*;
 
-macro_rules! uninit {
-    () => {
-        #[allow(invalid_value)]
-        unsafe {
-            ::core::mem::MaybeUninit::uninit().assume_init()
-        }
-    };
-    ($t:ty) => {
-        #[allow(invalid_value)]
-        unsafe {
-            ::core::mem::MaybeUninit::<$t>::uninit().assume_init()
-        }
-    };
-}
-
 const OVERFLOW_PANIC_MSG: &str = "viuwa_image image overflow, viuwa_image does not directly support images larger than 4GB";
 const CAST_PANIC_MSG: &str = "viuwa_image image byte cast error, please report this to us with your platform information";
 
@@ -265,7 +250,7 @@ pub type ParColumnsIterMut<'a, P> = ::rayon::iter::Map<
 pub trait ImageOps: Sealed {
     type Scalar: Scalar;
     type PixelRepr: PixelRepr<Scalar = Self::Scalar>;
-    type Pixel: Pixel<Repr = Self::PixelRepr>;
+    type Pixel: Pixel<Scalar = Self::Scalar, Repr = Self::PixelRepr>;
     /// Pixel width of the image, must be consistent with the data
     fn width(&self) -> usize;
     /// Pixel height of the image, must be consistent with the data
@@ -273,20 +258,32 @@ pub trait ImageOps: Sealed {
     /// Dimensions of the image
     #[inline]
     fn dimensions(&self) -> (usize, usize) { (self.width(), self.height()) }
-    /// Flattened image data
+    /// Get a reference to the underlying raw data.
     fn data(&self) -> &[Self::Scalar];
+    /// Get a reference to the flattened pixel data.
+    #[inline]
+    fn pixels(&self) -> &[Self::PixelRepr] { pixelate::<Self::Pixel>(self.data()) }
+    /// Get the pixel at (x, y)
+    fn get(&self, x: usize, y: usize) -> Option<&Self::PixelRepr> {
+        if x < self.width() && y < self.height() {
+            Some(unsafe { self.get_unchecked(x, y) })
+        } else {
+            None
+        }
+    }
+    /// Get the pixel at (x, y) unchecked
+    unsafe fn get_unchecked(&self, x: usize, y: usize) -> &Self::PixelRepr {
+        self.pixels().get_unchecked(y * self.width() + x)
+    }
     /// Clone `self` into a new [`Image`]
     #[inline]
     fn to_owned(&self) -> Image<Self::Pixel> {
         unsafe { Image::from_raw_unchecked(self.data().to_vec(), self.width(), self.height()) }
     }
-    /// Image data as a slice of pixels
-    #[inline]
-    fn pixels(&self) -> &[Self::PixelRepr] { pixelate::<Self::Pixel>(self.data()) }
-    /// Pixel row iterator
+    /// Create an iterator over the rows of this image, each row is a slice of pixels
     #[inline]
     fn rows(&self) -> ChunksExact<Self::PixelRepr> { self.pixels().chunks_exact(self.width()) }
-    /// Pixel column iterator
+    /// Create an iterator over the columns of this image, each column is a iterator over pixels
     fn columns(&self) -> ColumnsIter<Self::Pixel> {
         self.pixels()[..self.width()]
             .iter()
@@ -294,8 +291,10 @@ pub trait ImageOps: Sealed {
             .zip(::core::iter::repeat((self.pixels().len(), self.width())))
             .map(_map_column::<Self::Pixel>)
     }
+    /// Create a parallel iterator over the rows of this image, each row is a slice of pixels
     #[cfg(feature = "rayon")]
     fn par_rows(&self) -> ::rayon::slice::ChunksExact<Self::PixelRepr> { self.pixels().par_chunks_exact(self.width()) }
+    /// Create a parallel iterator over the columns of this image, each column is a iterator over pixels
     #[cfg(feature = "rayon")]
     fn par_columns(&self) -> ParColumnsIter<Self::Pixel> {
         self.pixels()[..self.width()]
@@ -306,11 +305,12 @@ pub trait ImageOps: Sealed {
     }
     /// Resize the image to the given dimensions, not preserving aspect ratio.
     fn resize(&self, width: usize, height: usize, filter: &FilterType) -> Image<Self::Pixel> {
-        if width == self.width() && height == self.height() {
+        let (w, h) = self.dimensions();
+        if width == w && height == h {
             return self.to_owned();
         }
         let mut buf = unsafe { Image::new_uninit_unchecked(width, height) };
-        sample(filter.filter(), ImageView { width, height, data: self.data() }, buf.view_mut());
+        sample(filter.filter(), ImageView { width: w, height: h, data: self.data() }, buf.view_mut());
         buf
     }
     /// Resize within the given dimensions, preserving aspect ratio.
@@ -319,14 +319,8 @@ pub trait ImageOps: Sealed {
     ///  - `image.resize_within(100,50,_)` is the same as `image.resize(50,50,_)`.
     ///  - `image.resize_within(200,300,_)` is the same as `image.resize(200,200,_)`.
     fn rescale(&self, width: usize, height: usize, filter: &FilterType) -> Image<Self::Pixel> {
-        let (w, h) = self.dimensions();
-        let (nw, nh) = squeeze_dimensions((w, h), (width, height));
-        if nw == w && nh == h {
-            return self.to_owned();
-        }
-        let mut buf = unsafe { Image::new_uninit_unchecked(nw, nh) };
-        sample(filter.filter(), ImageView { width: w, height: h, data: self.data() }, buf.view_mut());
-        buf
+        let (width, height) = squeeze_dimensions(self.dimensions(), (width, height));
+        self.resize(width, height, filter)
     }
     /// [`resize`](ImageOps::resize),
     /// except if the image is larger than the given dimensions * multiplicty,
@@ -334,11 +328,12 @@ pub trait ImageOps: Sealed {
     ///
     /// This helps avoid unecessary work when sampling from a large image.
     fn supersize(&self, width: usize, height: usize, filter: &FilterType, multiplicity: f32) -> Image<Self::Pixel> {
-        if width == self.width() && height == self.height() {
+        let (w, h) = self.dimensions();
+        if width == w && height == h {
             return self.to_owned();
         }
         let mut buf = unsafe { Image::new_uninit_unchecked(width, height) };
-        supersample(filter.filter(), ImageView { width, height, data: self.data() }, buf.view_mut(), multiplicity);
+        supersample(filter.filter(), ImageView { width: w, height: h, data: self.data() }, buf.view_mut(), multiplicity);
         buf
     }
     /// [`rescale`](ImageOps::rescale),
@@ -347,14 +342,8 @@ pub trait ImageOps: Sealed {
     ///
     /// This helps avoid unecessary work when sampling from a large image.
     fn superscale(&self, width: usize, height: usize, filter: &FilterType, multiplicity: f32) -> Image<Self::Pixel> {
-        let (w, h) = self.dimensions();
-        let (nw, nh) = squeeze_dimensions((w, h), (width, height));
-        if nw == w && nh == h {
-            return self.to_owned();
-        }
-        let mut buf = unsafe { Image::new_uninit_unchecked(nw, nh) };
-        supersample(filter.filter(), ImageView { width, height, data: self.data() }, buf.view_mut(), multiplicity);
-        buf
+        let (width, height) = squeeze_dimensions(self.dimensions(), (width, height));
+        self.supersize(width, height, filter, multiplicity)
     }
     /// [`resize`](ImageOps::resize) using SIMD.
     ///
@@ -366,12 +355,13 @@ pub trait ImageOps: Sealed {
         Self::PixelRepr: CompatPixelRepr,
         Self::Pixel: CompatPixel,
     {
-        if width == self.width() && height == self.height() {
+        let (w, h) = self.dimensions();
+        if width == w && height == h {
             return self.to_owned();
         }
         let mut buf = unsafe { Image::new_uninit_unchecked(width, height) };
         let mut resizer = ::fast_image_resize::Resizer::new(filter.algorithm());
-        let v = <Self::Pixel as CompatPixel>::fir_view(ImageView { width, height, data: self.data() });
+        let v = <Self::Pixel as CompatPixel>::fir_view(ImageView { width: w, height: h, data: self.data() });
         let mut mv = <Self::Pixel as CompatPixel>::fir_view_mut(buf.view_mut());
         // The only error that can (should) occur is if memory is corrupted, which is a bug.
         resizer.resize(&v, &mut mv).expect(concat!("something went wrong: ", module_path!(), "::ImageOps::fir_resize"));
@@ -387,18 +377,8 @@ pub trait ImageOps: Sealed {
         Self::PixelRepr: CompatPixelRepr,
         Self::Pixel: CompatPixel,
     {
-        let (w, h) = self.dimensions();
-        let (nw, nh) = squeeze_dimensions((w, h), (width, height));
-        if nw == w && nh == h {
-            return self.to_owned();
-        }
-        let mut buf = unsafe { Image::new_uninit_unchecked(width, height) };
-        let mut resizer = ::fast_image_resize::Resizer::new(filter.algorithm());
-        let v = <Self::Pixel as CompatPixel>::fir_view(ImageView { width, height, data: self.data() });
-        let mut mv = <Self::Pixel as CompatPixel>::fir_view_mut(buf.view_mut());
-        // The only error that can (should) occur is if memory is corrupted, which is a bug.
-        resizer.resize(&v, &mut mv).expect(concat!("something went wrong: ", module_path!(), "::ImageOps::fir_rescale"));
-        buf
+        let (width, height) = squeeze_dimensions(self.dimensions(), (width, height));
+        self.fir_resize(width, height, filter)
     }
     /// [`supersize`](ImageOps::supersize) using SIMD.
     ///
@@ -412,12 +392,13 @@ pub trait ImageOps: Sealed {
         Self::PixelRepr: CompatPixelRepr,
         Self::Pixel: CompatPixel,
     {
-        if width == self.width() && height == self.height() {
+        let (w, h) = self.dimensions();
+        if width == w && height == h {
             return self.to_owned();
         }
         let mut buf = unsafe { Image::new_uninit_unchecked(width, height) };
         let mut resizer = ::fast_image_resize::Resizer::new(filter.ss_algorithm(multiplicity));
-        let v = <Self::Pixel as CompatPixel>::fir_view(ImageView { width, height, data: self.data() });
+        let v = <Self::Pixel as CompatPixel>::fir_view(ImageView { width: w, height: h, data: self.data() });
         let mut mv = <Self::Pixel as CompatPixel>::fir_view_mut(buf.view_mut());
         // The only error that can (should) occur is if memory is corrupted, which is a bug.
         resizer.resize(&v, &mut mv).expect(concat!("something went wrong: ", module_path!(), "::ImageOps::fir_supersize"));
@@ -435,18 +416,8 @@ pub trait ImageOps: Sealed {
         Self::PixelRepr: CompatPixelRepr,
         Self::Pixel: CompatPixel,
     {
-        let (w, h) = self.dimensions();
-        let (nw, nh) = squeeze_dimensions((w, h), (width, height));
-        if nw == w && nh == h {
-            return self.to_owned();
-        }
-        let mut buf = unsafe { Image::new_uninit_unchecked(width, height) };
-        let mut resizer = ::fast_image_resize::Resizer::new(filter.ss_algorithm(multiplicity));
-        let v = <Self::Pixel as CompatPixel>::fir_view(ImageView { width, height, data: self.data() });
-        let mut mv = <Self::Pixel as CompatPixel>::fir_view_mut(buf.view_mut());
-        // The only error that can (should) occur is if memory is corrupted, which is a bug.
-        resizer.resize(&v, &mut mv).expect(concat!("something went wrong: ", module_path!(), "::ImageOps::fir_superscale"));
-        buf
+        let (width, height) = squeeze_dimensions(self.dimensions(), (width, height));
+        self.fir_supersize(width, height, filter, multiplicity)
     }
 }
 
@@ -455,26 +426,46 @@ pub trait ImageOps: Sealed {
 // - The dimensions of the image must be correct and consistent with the data length (width * height * channels)
 // - The data must be in row-major order and contiguous
 pub trait ImageOpsMut: ImageOps {
+    /// Get a mutable reference to the underlying raw data.
     fn data_mut(&mut self) -> &mut [Self::Scalar];
+    /// Get a mutable reference to the flattened pixel data.
     #[inline]
     fn pixels_mut(&mut self) -> &mut [Self::PixelRepr] { pixelate_mut::<Self::Pixel>(self.data_mut()) }
+    /// Get a mutable reference to the pixel at (x, y)
+    fn get_mut(&mut self, x: usize, y: usize) -> Option<&mut Self::PixelRepr> {
+        let (w, h) = self.dimensions();
+        if x < w && y < h {
+            Some(unsafe { self.pixels_mut().get_unchecked_mut(y * w + x) })
+        } else {
+            None
+        }
+    }
+    /// Get a mutable reference to the pixel at (x, y) unchecked.
+    unsafe fn get_unchecked_mut(&mut self, x: usize, y: usize) -> &mut Self::PixelRepr {
+        let w = self.width();
+        self.pixels_mut().get_unchecked_mut(y * w + x)
+    }
+    /// Create an iterator over the mutable rows of the image.
     #[inline]
     fn rows_mut(&mut self) -> ChunksExactMut<Self::PixelRepr> {
         let w = self.width();
         self.pixels_mut().chunks_exact_mut(w)
     }
+    /// Create an iterator over the mutable columns of the image.
     fn columns_mut(&mut self) -> ColumnsIterMut<Self::Pixel> {
         let w = self.width();
         let pxs = self.pixels_mut();
         let pxs_len = pxs.len();
         pxs[..w].iter_mut().enumerate().zip(::core::iter::repeat((pxs_len, w))).map(_map_column_mut::<Self::Pixel>)
     }
+    /// Create a parallel iterator over the mutable rows of the image.
     #[inline]
     #[cfg(feature = "rayon")]
     fn par_rows_mut(&mut self) -> ::rayon::slice::ChunksExactMut<Self::PixelRepr> {
         let w = self.width();
         self.pixels_mut().par_chunks_exact_mut(w)
     }
+    /// Create a parallel iterator over the mutable columns of the image.
     #[cfg(feature = "rayon")]
     fn par_columns_mut(&mut self) -> ParColumnsIterMut<Self::Pixel> {
         let w = self.width();
@@ -566,7 +557,16 @@ impl<P: Pixel> ::core::ops::IndexMut<(usize, usize)> for Image<P> {
 impl<'a, P: Pixel> ::core::ops::IndexMut<(usize, usize)> for ImageViewMut<'a, P> {
     impl_IndexMut!();
 }
-
+impl<'a, P: Pixel> From<&'a Image<P>> for ImageView<'a, P> {
+    #[inline(always)]
+    fn from(value: &'a Image<P>) -> Self { ImageView { width: value.width, height: value.height, data: &value.data } }
+}
+impl<'a, P: Pixel> From<&'a mut Image<P>> for ImageViewMut<'a, P> {
+    #[inline(always)]
+    fn from(value: &'a mut Image<P>) -> Self {
+        ImageViewMut { width: value.width, height: value.height, data: &mut value.data }
+    }
+}
 #[cfg(feature = "image")]
 mod compat_image {
     use super::*;
@@ -626,3 +626,12 @@ mod compat_image {
 }
 #[cfg(feature = "image")]
 pub use self::compat_image::*;
+
+/// Fill the given dimensions with the given image dimensions, keeping the aspect ratio.
+pub fn fill_dimensions(src: (usize, usize), dst: (usize, usize)) -> (usize, usize) {
+    let (w, h) = src;
+    let (nw, nh) = dst;
+    let ratio = f64::max(nw as f64 / w as f64, nh as f64 / h as f64);
+    let (w, h) = (w as f64 * ratio, h as f64 * ratio);
+    (w as usize, h as usize)
+}

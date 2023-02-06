@@ -1,20 +1,5 @@
-//! Image sampling, default resize functionality
+//! Image sampling
 use super::*;
-
-macro_rules! uninit {
-    () => {
-        #[allow(invalid_value)]
-        unsafe {
-            ::core::mem::MaybeUninit::uninit().assume_init()
-        }
-    };
-    ($t:ty) => {
-        #[allow(invalid_value)]
-        unsafe {
-            ::core::mem::MaybeUninit::<$t>::uninit().assume_init()
-        }
-    };
-}
 
 #[derive(Debug, Clone, Copy)]
 struct Span {
@@ -199,7 +184,6 @@ pub fn sample<P: Pixel>(Filter { kernel, support }: Filter, src: ImageView<P>, m
 ///
 /// Currently, this means we give up on some memory savings, but it may significantly improve performance if the source image is very large.
 pub fn supersample<P: Pixel>(filter: Filter, src: ImageView<P>, dst: ImageViewMut<P>, multiplicity: f32) {
-    // If someone wants to pull out their hair, they can try implement a memory-saving version of this
     let s = Sample::new::<P>(filter.support, src.dimensions(), dst.dimensions());
     if Weight::min(s.ratio.0, s.ratio.1) > multiplicity as Weight {
         let mut buf = unsafe {

@@ -2,70 +2,156 @@
 //!
 //! Use `PixelConverter` to convert pixels to ansi color sequences
 
+use std::str::FromStr;
+
 use super::*;
 
-macro_rules! uninit {
-    () => {
-        #[allow(invalid_value)]
-        unsafe {
-            ::core::mem::MaybeUninit::uninit().assume_init()
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+/// Describes the color space of a color type (one of colored or gray)
+pub enum ColorSpace {
+    #[default]
+    Color = 0,
+    Gray = 2,
+}
+#[cfg(feature = "parse")]
+impl FromStr for ColorSpace {
+    type Err = String;
+    #[inline]
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "color" | "rgb" | "truecolor" => Ok(Self::Color),
+            "gray" | "grey" | "grayscale" | "greyscale" => Ok(Self::Gray),
+            _ => Err(format!("{s:?} is not a valid color space")),
         }
-    };
-    ($t:ty) => {
-        #[allow(invalid_value)]
-        unsafe {
-            ::core::mem::MaybeUninit::<$t>::uninit().assume_init()
-        }
-    };
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> ::serde::Deserialize<'de> for ColorSpace {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?.parse().map_err(::serde::de::Error::custom)
+    }
+}
+impl ColorSpace {
+    /// Cycle through the color spaces
+    #[inline]
+    pub fn cycle(&self) -> ColorSpace { unsafe { ::core::mem::transmute(*self as u8 ^ 2) } }
 }
 
-#[cfg_attr(feature = "clap", derive(::clap::ValueEnum))]
-#[derive(Debug, Clone, Copy, Default)]
+/// Describes the color depth of a color type (one of 24-bit or 8-bit)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum ColorDepth {
+    #[default]
+    B24 = 0,
+    B8 = 1,
+}
+#[cfg(feature = "parse")]
+impl FromStr for ColorDepth {
+    type Err = String;
+    #[inline]
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "24" | "24bit" | "24-bit" => Ok(Self::B24),
+            "8" | "8bit" | "8-bit" => Ok(Self::B8),
+            _ => Err(format!("{s:?} is not a valid color depth")),
+        }
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> ::serde::Deserialize<'de> for ColorDepth {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?.parse().map_err(::serde::de::Error::custom)
+    }
+}
+impl ColorDepth {
+    /// Cycle through the color depths
+    #[inline]
+    pub fn cycle(&self) -> ColorDepth { unsafe { ::core::mem::transmute(*self as u8 ^ 1) } }
+}
+
+/// Describes the color type (one of 24-bit color, 8-bit color, 24-bit grayscale, or 8-bit grayscale)
+///
+/// could also be described as a `DynamicConverter`
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, PartialOrd, Ord, Hash)]
+#[repr(u8)]
 pub enum ColorType {
     #[default]
-    #[cfg_attr(feature = "clap", value(name = "color", alias = "truecolor"))]
-    Color,
-    #[cfg_attr(feature = "clap", value(name = "ansi_color", alias = "ansi"))]
-    AnsiColor,
-    #[cfg_attr(feature = "clap", value(name = "gray", alias = "grayscale"))]
-    Gray,
-    #[cfg_attr(feature = "clap", value(name = "ansi_gray", alias = "agray"))]
-    AnsiGray,
+    Color = 0,
+    AnsiColor = 1,
+    Gray = 2,
+    AnsiGray = 3,
+}
+#[cfg(feature = "parse")]
+impl FromStr for ColorType {
+    type Err = String;
+    #[inline]
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "color" | "rgb" | "truecolor" => Ok(Self::Color),
+            "ansi-color" => Ok(Self::AnsiColor),
+            "gray" | "grey" | "grayscale" | "greyscale" => Ok(Self::Gray),
+            "ansi-gray" => Ok(Self::AnsiGray),
+            _ => Err(format!("{s:?} is not a valid color type")),
+        }
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> ::serde::Deserialize<'de> for ColorType {
+    #[inline]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?.parse().map_err(::serde::de::Error::custom)
+    }
+}
+
+impl From<(ColorSpace, ColorDepth)> for ColorType {
+    fn from((space, depth): (ColorSpace, ColorDepth)) -> Self {
+        unsafe { ::core::mem::transmute(space as u8 | depth as u8) }
+    }
+}
+impl From<u8> for ColorType {
+    fn from(u: u8) -> Self { unsafe { ::core::mem::transmute(u.min(3)) } }
 }
 
 impl ColorType {
     /// Cycle through the color types
     #[inline]
-    pub fn cycle(&self) -> ColorType {
-        match self {
-            ColorType::Color => ColorType::AnsiColor,
-            ColorType::AnsiColor => ColorType::Gray,
-            ColorType::Gray => ColorType::AnsiGray,
-            ColorType::AnsiGray => ColorType::Color,
-        }
-    }
+    pub fn cycle(&self) -> ColorType { unsafe { ::core::mem::transmute((*self as u8 + 1) & 3) } }
+    /// Get the color space of the color type
+    #[inline]
+    pub fn space(&self) -> ColorSpace { unsafe { ::core::mem::transmute(*self as u8 & 2) } }
+    /// Get the color depth of the color type
+    #[inline]
+    pub fn depth(&self) -> ColorDepth { unsafe { ::core::mem::transmute(*self as u8 & 1) } }
+    /// Cycle the color space
+    #[inline]
+    pub fn cycle_space(&self) -> ColorType { unsafe { ::core::mem::transmute(*self as u8 ^ 2) } }
+    /// Cycle the color depth
+    #[inline]
+    pub fn cycle_depth(&self) -> ColorType { unsafe { ::core::mem::transmute(*self as u8 ^ 1) } }
     /// Can the colortype represent different hues?
     #[inline]
-    pub fn is_color(&self) -> bool {
-        match self {
-            ColorType::Color | ColorType::AnsiColor => true,
-            ColorType::Gray | ColorType::AnsiGray => false,
-        }
-    }
+    pub fn is_color(&self) -> bool { *self as u8 & 2 == 0 }
     /// Can the colortype only represent grayscale?
     #[inline]
-    pub fn is_gray(&self) -> bool { !self.is_color() }
+    pub fn is_gray(&self) -> bool { *self as u8 & 2 != 0 }
     /// Does the colortype use 24 bits? (e.g. rgb, gray rgb)
     #[inline]
-    pub fn is_24bit(&self) -> bool {
-        match self {
-            ColorType::Color | ColorType::Gray => true,
-            ColorType::AnsiColor | ColorType::AnsiGray => false,
-        }
-    }
+    pub fn is_24bit(&self) -> bool { *self as u8 & 1 == 0 }
     /// Does the colortype use 8 bits? (e.g. rgb, gray rgb)
     #[inline]
-    pub fn is_8bit(&self) -> bool { !self.is_24bit() }
+    pub fn is_8bit(&self) -> bool { *self as u8 & 1 != 0 }
 }
 
 /// Wrapper around possibly user-controlled color attributes

@@ -211,3 +211,35 @@ macro_rules! preset_bg {
         $crate::sgr!("107")
     };
 }
+
+/// Macro for executing a series of fallible write functions on a Terminal, <br>
+/// essentially using `and_then` to chain the results of each function call
+/// # Example
+/// ```ignore
+/// use std::io::Write;
+/// use std::io::stdout;
+/// use viuwa_ansi::{execute, Terminal};
+/// let mut term = stdout().lock();
+/// execute!(
+///     term,
+///     clear_screen(),
+///     write_all(b"Hello, "),
+///     write_all(b"world!"),
+///     cursor_foward(7),
+///     write_all(b"beautiful "),
+///     write_all(b"world!"),
+///     cursor_home(),
+/// ).expect("Failed to write to terminal");
+/// ```
+#[macro_export]
+macro_rules! execute {
+    ($i:expr, $f:ident($($a:expr),*)$(, $fr:ident($($ar:expr),*))+) => {
+        match $i.$f($($a),*) {
+            Ok(_) => execute!($i, $($fr($($ar),*)),+),
+            Err(e) => Err(e),
+        }
+    };
+    ($i:expr, $f:ident($($a:expr),*)) => {
+        $i.$f($($a),*)
+    };
+}

@@ -9,17 +9,24 @@ repository = "https://github.com/WanderLanz/Viuwa"
 keywords = ["image-viewer", "ansi", "cli", "tui"]
 categories = ["command-line-utilities"]
 
+
 [badges]
 maintenance = { status = "experimental" }
 
 [workspace]
 
 [dependencies]
-viuwa-image = { path = "viuwa-image" }
-viuwa-ansi = { path = "viuwa-ansi" }
-viuwa-lib = { path = "viuwa-lib" }
-clap = { version = "4.*", features = ["derive"] }
-image = { version = "0.24.5", default-features = false, features = [
+viuwa-image = { path = "viuwa-image", default-features = false, features = [
+    "serde",
+    "image",
+] }
+viuwa-ansi = { path = "viuwa-ansi", default-features = false, features = [
+    "serde",
+    "image",
+    "wasi-request-size",
+] }
+clap = { version = "4", features = ["derive"] }
+image = { version = "0.24", default-features = false, features = [
     "gif",
     "jpeg",
     "ico",
@@ -35,27 +42,33 @@ image = { version = "0.24.5", default-features = false, features = [
     "farbfeld",
     "openexr",
 ] }
-rayon = { version = "1.6.0", optional = true }
-fast_image_resize = { version = "2.4.*", optional = true }
-toml = { version = "0.5.9", optional = true }
-directories = { version = "4.0.*", optional = true }
-ndarray = { version = "0.15.6", default-features = false, features = [] }
-human-panic = "1.0.*"
-anyhow = "1.0.*"
+rayon = { version = "1", optional = true }
+serde = { version = "1", features = ["derive"] }
+toml = { version = "0.7" }
+human-panic = "1"
+anyhow = "1"
 # base64 = { version = "0.13.*", optional = true }
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
-crossterm = { version = "0.25.*", default-features = false }
+is-terminal = "*"
+
+[target.'cfg(target_os = "wasi")'.dependencies]
+rustix = "*"
+
+[target.'cfg(not(target_os = "wasi"))'.dependencies]
+crossterm = { version = "0.26", default-features = false }
 
 [features]
-default = ["env", "config", "rayon", "fir"]
+default = ["rayon", "fir"]
 # multithreading with rayon
-rayon = ["dep:rayon", "ndarray/rayon", "image/jpeg_rayon"]
+rayon = [
+    "dep:rayon",
+    "image/jpeg_rayon",
+    "viuwa-image/rayon",
+    "viuwa-ansi/rayon",
+]
 # fast image resizing with fast_image_resize and simd, takes precedence over rayon image resizing
-fir = ["dep:fast_image_resize"]
+fir = ["viuwa-image/fir"]
 # read options from environment variables
 env = ["clap/env"]
-# read options from a config file
-config = ["dep:toml", "dep:directories"]
 # print trace and timings for various operations
 trace = []
 # print debug messages

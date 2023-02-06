@@ -1,17 +1,18 @@
 # Viuwa
+
 [![crate](https://img.shields.io/crates/v/viuwa.svg?style=for-the-badge)](https://crates.io/crates/viuwa) <!-- [![crate all releases](https://img.shields.io/crates/d/viuwa?color=fe7d37&style=for-the-badge)](https://crates.io/crates/viuwa) -->
 [![github](https://img.shields.io/github/v/release/WanderLanz/Viuwa?include_prereleases&label=GITHUB&style=for-the-badge)](https://github.com/WanderLanz/Viuwa) <!-- [![github all releases](https://img.shields.io/github/downloads/WanderLanz/Viuwa/total?style=for-the-badge)](https://github.com/WanderLanz/Viuwa/releases) -->
 [![license](https://img.shields.io/crates/l/viuwa.svg?style=for-the-badge)](NOTICES.txt)
 
-Viuwa is a simple terminal ANSI image viewer trying to maintain bare-minimum compatibility with the wasm32-wasi target.
+Viuwa is a simple terminal ANSI image viewer trying to maintain bare-minimum compatibility with the wasm32-wasi target made for fun.
 
-It uses almost *exclusively* ANSI escape codes to display
-images in the terminal.
+It *would* use exclusively ANSI escape codes to display
+images in the terminal if only standard ANSI was updated anytime in the last decade.
 
 Kitty, Sixel, and Iterm2 protocols are not supported,
-There are better tools such as [viu](https://github.com/atanunq/viu) or [timg](https://github.com/hzeller/timg) for cross-protocol terminal image viewing, please go and give them love.
+There are better tools such as [viu](https://github.com/atanunq/viu) or [timg](https://github.com/hzeller/timg) for cross-protocol terminal image viewing, please go and give them love, this is not a serious project.
 
-Pull requests implementing different protocols are allowed as long as they don't break wasm32-wasi+ANSI compatibility.
+Pull requests implementing different protocols are allowed as long as they don't break minimal wasm32-wasi+ANSI compatibility.
 
 ## ℹ️ Installation
 
@@ -29,7 +30,7 @@ git clone https://github.com/WanderLanz/Viuwa.git && cd Viuwa && cargo install -
 
 ### Features
 
-  - `rayon`: Enables both parallel image resizing and conversions to ANSI. This is enabled by default.
+- `rayon`: Enables both parallel image resizing and conversions to ANSI. This is enabled by default.
 
 ## 🔧 Usage
 
@@ -92,9 +93,10 @@ This project is licensed under
 
 ## 💡 Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+You are free and welcome to contribute to this project. See [CONTRIBUTING.md](CONTRIBUTING.md) for more information.
 
-## <a href="https://crates.io"><image alt="crates.io" src="/img/crates-io-favicon.ico.svg"/></a> Dependencies
+<!--"/img/crates-io-favicon.ico.svg"-->
+## <a href="https://crates.io"><image height="28" alt="crates.io" src="https://raw.githubusercontent.com/rust-lang/cargo/master/src/doc/src/images/Cargo-Logo-Small.png"/></a> Dependencies
 
 [![clap crate](https://img.shields.io/static/v1?label=📦&message=clap&color=B94700&style=flat-square)](https://crates.io/crates/clap)
 [![image crate](https://img.shields.io/static/v1?label=📦&message=image&color=B94700&style=flat-square)](https://crates.io/crates/image)
