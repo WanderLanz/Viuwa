@@ -1,44 +1,41 @@
-use std::{
-    fmt::Display,
-    io::{self, Result, Write},
-};
+use std::io::{self, Result, Write};
 
-use num_traits::Unsigned;
-
-use crate::{consts::*, statics};
+use crate::consts::*;
 
 /// Terminal ANSI writes
 pub trait Terminal: Write + Sized {
+    #[inline]
+    fn write_as<T: AsRef<[u8]> + Sized>(&mut self, s: T) -> Result<()> { self.write_all(s.as_ref()) }
     /// Clear the screen and the buffer
     #[inline]
     fn clear(&mut self) -> Result<()> { self.clear_screen().and_then(|_| self.clear_buffer()) }
     #[inline]
-    fn clear_buffer(&mut self) -> Result<()> { self.write_all(CLEAR_BUFFER.as_bytes()) }
+    fn clear_buffer(&mut self) -> Result<()> { self.write_as(CLEAR_BUFFER) }
     #[inline]
-    fn clear_screen(&mut self) -> Result<()> { self.write_all(CLEAR_SCREEN.as_bytes()) }
+    fn clear_screen(&mut self) -> Result<()> { self.write_as(CLEAR_SCREEN) }
     #[inline]
-    fn clear_line(&mut self) -> Result<()> { self.write_all(CLEAR_LINE.as_bytes()) }
+    fn clear_line(&mut self) -> Result<()> { self.write_as(CLEAR_LINE) }
     #[inline]
-    fn clear_line_to_end(&mut self) -> Result<()> { self.write_all(CLEAR_LINE_TO_END.as_bytes()) }
+    fn clear_line_to_end(&mut self) -> Result<()> { self.write_as(CLEAR_LINE_TO_END) }
     #[inline]
-    fn clear_line_to_start(&mut self) -> Result<()> { self.write_all(CLEAR_LINE_TO_START.as_bytes()) }
+    fn clear_line_to_start(&mut self) -> Result<()> { self.write_as(CLEAR_LINE_TO_START) }
     #[inline]
-    fn clear_screen_to_end(&mut self) -> Result<()> { self.write_all(CLEAR_SCREEN_TO_END.as_bytes()) }
+    fn clear_screen_to_end(&mut self) -> Result<()> { self.write_as(CLEAR_SCREEN_TO_END) }
     #[inline]
-    fn clear_screen_to_start(&mut self) -> Result<()> { self.write_all(CLEAR_SCREEN_TO_START.as_bytes()) }
+    fn clear_screen_to_start(&mut self) -> Result<()> { self.write_as(CLEAR_SCREEN_TO_START) }
     #[inline]
     /// does not work on windows
-    fn reset(&mut self) -> Result<()> { self.write_all(RESET.as_bytes()) }
+    fn reset(&mut self) -> Result<()> { self.write_as(RESET) }
     #[inline]
-    fn soft_reset(&mut self) -> Result<()> { self.write_all(SOFT_RESET.as_bytes()) }
+    fn soft_reset(&mut self) -> Result<()> { self.write_as(SOFT_RESET) }
     #[inline]
-    fn enter_alt_screen(&mut self) -> Result<()> { self.write_all(ENTER_ALT_SCREEN.as_bytes()) }
+    fn enter_alt_screen(&mut self) -> Result<()> { self.write_as(ENTER_ALT_SCREEN) }
     #[inline]
-    fn exit_alt_screen(&mut self) -> Result<()> { self.write_all(EXIT_ALT_SCREEN.as_bytes()) }
+    fn exit_alt_screen(&mut self) -> Result<()> { self.write_as(EXIT_ALT_SCREEN) }
     #[inline]
-    fn enable_line_wrap(&mut self) -> Result<()> { self.write_all(ENABLE_LINE_WRAP.as_bytes()) }
+    fn enable_line_wrap(&mut self) -> Result<()> { self.write_as(ENABLE_LINE_WRAP) }
     #[inline]
-    fn disable_line_wrap(&mut self) -> Result<()> { self.write_all(DISABLE_LINE_WRAP.as_bytes()) }
+    fn disable_line_wrap(&mut self) -> Result<()> { self.write_as(DISABLE_LINE_WRAP) }
     #[inline]
     fn enable_raw_mode(&mut self) -> Result<()> {
         #[cfg(target_family = "wasm")]
@@ -69,50 +66,14 @@ pub trait Terminal: Write + Sized {
     #[inline]
     /// Resize the window using ansi escape codes
     fn resize(&mut self, width: u16, height: u16) -> Result<()> { write!(self, csi!("8;{};{}t"), height, width) }
-    /// Attempt to read the terminal size in characters
+    /// Attempt to read the terminal size in characters quietly (only affects wasm)
     #[inline]
-    fn size(&mut self) -> Result<(u16, u16)> {
+    fn size_quiet(&mut self) -> Result<(u16, u16)> {
         #[cfg(not(target_family = "wasm"))]
         return ::crossterm::terminal::size();
         #[cfg(target_family = "wasm")]
         {
             use std::io::Read;
-            #[cfg(feature = "wasi-request-size")]
-            fn _request_size(t: &mut impl Terminal) -> Result<(u16, u16)> {
-                eprintln!("requesting size, please enter on response...");
-                t.cursor_save()?;
-                t.write_all(b"\x1b[4096;4096H")?;
-                t.cursor_report_position()?;
-                t.cursor_restore()?;
-                t.flush()?;
-                let mut buf = [0; 11];
-                let mut res = [None; 2];
-                if matches!(io::stdin().read(&mut buf), Ok(n) if n >= 6) {
-                    let buf = buf.into_iter().filter(|&b| b == b';' || b.is_ascii_digit()).collect::<Vec<_>>();
-                    for (b, r) in buf.splitn(2, |&b| b == b';').zip(res.iter_mut()) {
-                        *r = unsafe { std::str::from_utf8_unchecked(b) }.parse::<u16>().ok();
-                    }
-                };
-                if let [Some(w), Some(h)] = res {
-                    Ok((w, h))
-                } else {
-                    Err(io::Error::from(io::ErrorKind::Other))
-                }
-            }
-            #[cfg(feature = "wasi-request-size")]
-            return {
-                if let (Some(w), Some(h)) = (
-                    std::env::var("COLUMNS").ok().and_then(|h| h.parse::<u16>().ok()),
-                    std::env::var("LINES").ok().and_then(|h| h.parse::<u16>().ok()),
-                ) {
-                    Ok((w, h))
-                } else if let Ok(v) = _request_size(self) {
-                    Ok(v)
-                } else {
-                    Err(io::Error::from(io::ErrorKind::Other))
-                }
-            };
-            #[cfg(not(feature = "wasi-request-size"))]
             return {
                 if let (Some(w), Some(h)) = (
                     std::env::var("COLUMNS").ok().and_then(|h| h.parse::<u16>().ok()),
@@ -125,22 +86,63 @@ pub trait Terminal: Write + Sized {
             };
         }
     }
+    /// Attempt to read the terminal size in characters
     #[inline]
-    fn cursor_hide(&mut self) -> Result<()> { self.write_all(HIDE_CURSOR.as_bytes()) }
+    fn size(&mut self) -> Result<(u16, u16)> {
+        #[cfg(not(target_family = "wasm"))]
+        return ::crossterm::terminal::size();
+        #[cfg(target_family = "wasm")]
+        {
+            use std::io::Read;
+            return {
+                if let (Some(w), Some(h)) = (
+                    std::env::var("COLUMNS").ok().and_then(|h| h.parse::<u16>().ok()),
+                    std::env::var("LINES").ok().and_then(|h| h.parse::<u16>().ok()),
+                ) {
+                    Ok((w, h))
+                } else if let [Some(w), Some(h)] = {
+                    eprintln!("requesting size, please enter on response...");
+                    execute!(
+                        self,
+                        cursor_save(),
+                        write_all(b"\x1b[4096;4096H"),
+                        cursor_report_position(),
+                        cursor_restore(),
+                        flush()
+                    )?;
+                    let mut buf = [0; 11];
+                    let mut res = [None; 2];
+                    if matches!(io::stdin().read(&mut buf), Ok(n) if n >= 6) {
+                        let buf = buf.into_iter().filter(|&b| b == b';' || b.is_ascii_digit()).collect::<Vec<_>>();
+                        for (b, r) in buf.splitn(2, |&b| b == b';').zip(res.iter_mut()) {
+                            *r = unsafe { std::str::from_utf8_unchecked(b) }.parse::<u16>().ok();
+                        }
+                    };
+                    res
+                } {
+                    Ok((w, h))
+                } else {
+                    Err(io::Error::from(io::ErrorKind::Other))
+                }
+            };
+        }
+    }
     #[inline]
-    fn cursor_show(&mut self) -> Result<()> { self.write_all(SHOW_CURSOR.as_bytes()) }
+    fn cursor_hide(&mut self) -> Result<()> { self.write_as(HIDE_CURSOR) }
     #[inline]
-    fn cursor_save(&mut self) -> Result<()> { self.write_all(SAVE_CURSOR.as_bytes()) }
+    fn cursor_show(&mut self) -> Result<()> { self.write_as(SHOW_CURSOR) }
     #[inline]
-    fn cursor_restore(&mut self) -> Result<()> { self.write_all(RESTORE_CURSOR.as_bytes()) }
+    fn cursor_save(&mut self) -> Result<()> { self.write_as(SAVE_CURSOR) }
     #[inline]
-    fn cursor_report_position(&mut self) -> Result<()> { self.write_all(REPORT_CURSOR_POSITION.as_bytes()) }
+    fn cursor_restore(&mut self) -> Result<()> { self.write_as(RESTORE_CURSOR) }
     #[inline]
-    fn cursor_next_line(&mut self) -> Result<()> { self.write_all(CURSOR_NEXT_LINE.as_bytes()) }
+    fn cursor_report_position(&mut self) -> Result<()> { self.write_as(REPORT_CURSOR_POSITION) }
     #[inline]
-    fn cursor_prev_line(&mut self) -> Result<()> { self.write_all(CURSOR_PREV_LINE.as_bytes()) }
+    fn cursor_next_line(&mut self) -> Result<()> { self.write_as(CURSOR_NEXT_LINE) }
     #[inline]
-    fn cursor_home(&mut self) -> Result<()> { self.write_all(CURSOR_HOME.as_bytes()) }
+    fn cursor_prev_line(&mut self) -> Result<()> { self.write_as(CURSOR_PREV_LINE) }
+    #[inline]
+    fn cursor_home(&mut self) -> Result<()> { self.write_as(CURSOR_HOME) }
     #[inline]
     fn cursor_to(&mut self, x: u16, y: u16) -> Result<()> { write!(self, csi!("{};{}H"), y + 1, x + 1) }
     #[inline]
@@ -158,7 +160,7 @@ pub trait Terminal: Write + Sized {
     #[inline]
     fn cursor_prev_lines(&mut self, n: u16) -> Result<()> { write!(self, csi!("{}F"), n) }
     #[inline]
-    fn attr_reset(&mut self) -> Result<()> { self.write_all(SGR_DEFAULT.as_bytes()) }
+    fn attr_reset(&mut self) -> Result<()> { self.write_as(SGR_DEFAULT) }
     #[inline]
     fn write_iter<'a, Item: AsRef<[u8]> + 'a, C: IntoIterator<Item = &'a Item>>(&mut self, c: C) -> Result<()> {
         for s in c {

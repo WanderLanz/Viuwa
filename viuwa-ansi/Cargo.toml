@@ -22,7 +22,7 @@ rayon = { version = "1.*", optional = true }
 crossterm = { version = "0.26.0", default-features = false }
 
 [features]
-default = ["rayon", "parse", "image", "wasi-request-size"]
+default = ["rayon", "parse", "image"]
 parse = []
 # Serde support
 serde = ["dep:serde", "parse"]
@@ -30,7 +30,5 @@ serde = ["dep:serde", "parse"]
 image = ["dep:image", "viuwa-image/image"]
 # Multithreading with rayon
 rayon = ["dep:rayon", "viuwa-image/rayon"]
-# Add an ANSI request fallback to Terminal::size()
-wasi-request-size = []
 # sixel = []
 # iterm = ["dep:base64"]

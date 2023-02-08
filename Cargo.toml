@@ -23,7 +23,6 @@ viuwa-image = { path = "viuwa-image", default-features = false, features = [
 viuwa-ansi = { path = "viuwa-ansi", default-features = false, features = [
     "serde",
     "image",
-    "wasi-request-size",
 ] }
 clap = { version = "4", features = ["derive"] }
 image = { version = "0.24", default-features = false, features = [

@@ -83,7 +83,7 @@ mod tracing {
 }
 
 /// Macro for executing a series of fallible functions on an stdout with a generic error msg
-macro_rules! execute_stdout {
+macro_rules! _execute {
     ($i:expr, $($f:ident($($a:expr),*)),+) => {
         execute!($i, $($f($($a),*)),+).expect("unexpectedly failed to print to stdout")
     };
