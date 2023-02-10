@@ -249,7 +249,7 @@ where
         _execute!(self.lock, flush());
         loop {
             match self.poll() {
-                Pol::Cmd(Command::Help) => break,
+                Pol::Cmd(Command::Help | Command::Quit) => break,
                 Pol::Cmd(cmd) => self.command(cmd),
                 _ => (),
             }
