@@ -14,7 +14,7 @@ use viuwa_ansi::{
     execute, fg, image::AnsiRow, AnsiImage, ColorAttributes, ColorDepth, ColorSpace, ColorType, Converter, DynamicAnsiImage,
     Terminal,
 };
-use viuwa_image::{CompatPixelRepr, CompatScalar, FilterType, Image, ImageOps, ImageView, PixelRepr};
+use viuwa_image::{CompatPixelRepr, CompatScalar, FilterType, Image, ImageView, PixelRepr};
 
 #[macro_use]
 mod macros;
@@ -23,6 +23,8 @@ pub use config::*;
 mod commands;
 use anyhow::{anyhow, Context, Result};
 pub use commands::*;
+pub mod cursor;
+use cursor::*;
 
 #[cfg(feature = "trace")]
 mod tracing {
@@ -162,15 +164,18 @@ where
         let buf = {
             #[cfg(feature = "fir")]
             {
-                orig.fir_superscale(dims.0, dims.1, &conf.filter, 3)
+                orig.fir_supersize(dims.0, dims.1, &conf.filter, 3)
             }
             #[cfg(not(feature = "fir"))]
             {
-                orig.superscale(dims.0, dims.1, &conf.filter, 3.)
+                orig.supersize(dims.0, dims.1, &conf.filter, 3.)
             }
         };
         Ok(Self { conf, orig, buf, sz, lock: BufWriter::new(lock), attrs })
     }
+    /// Get a mutable reference to the terminal lock
+    #[inline]
+    pub fn term(&mut self) -> &mut BufWriter<StdoutLock<'a>> { &mut self.lock }
     /// Start viuwa app
     pub fn spawn(mut self) {
         trace!("Viuwa::spawn");
@@ -189,11 +194,8 @@ where
     }
     /// Write the buffer to the terminal, and move the cursor to the bottom left
     fn _draw(&mut self) {
-        fn write_ansi<P: Pixel, C: Converter>(
-            viuwa: &mut Viuwa<P>,
-            mut ansi: AnsiImage<ImageView<P>, C>,
-            (offx, offy): (u16, u16),
-        ) where
+        fn write_ansi<P: Pixel, C: Converter>(viuwa: &mut Viuwa<P>, mut ansi: AnsiImage<P, C>, (offx, offy): (u16, u16))
+        where
             <P as viuwa_image::Pixel>::Scalar: CompatScalar,
             <P as viuwa_image::Pixel>::Repr: CompatPixelRepr,
         {
@@ -294,11 +296,11 @@ where
         let dims = dimensions(self.sz, &self.conf, self.orig.dimensions());
         #[cfg(feature = "fir")]
         {
-            self.buf = self.orig.fir_superscale(dims.0, dims.1, &self.conf.filter, 3);
+            self.buf = self.orig.fir_supersize(dims.0, dims.1, &self.conf.filter, 3);
         }
         #[cfg(not(feature = "fir"))]
         {
-            self.buf = self.orig.superscale(dims.0, dims.1, &self.conf.filter, 3.);
+            self.buf = self.orig.supersize(dims.0, dims.1, &self.conf.filter, 3.);
         }
         self._draw()
     }
@@ -373,11 +375,11 @@ where
             _ => (),
         };
     }
-    /// Parse a command from the viuwa vim-like "command line"
-    pub fn command_line(&mut self) -> Option<Command> {
+    /// Parse a command from the viuwa vim-like command prompt
+    pub fn command_prompt(&mut self) -> Option<Command> {
         #[cfg(not(target_os = "wasi"))]
         {
-            let mut buf = String::from(":");
+            let buf = String::from(":");
             _execute!(
                 self.lock,
                 cursor_to(0, self.sz.1 - 1),
@@ -386,114 +388,37 @@ where
                 write_all(buf.as_bytes()),
                 flush()
             );
-            let mut idx = 1;
+            let mut cur = unsafe { AsciiPrompt::new_unchecked(buf, 1, 1) };
             loop {
                 match crossterm::event::read().expect("failed to read event") {
                     Event::Key(KeyEvent { code, kind: KeyEventKind::Press, modifiers, .. }) => match code {
-                        // Currently we only get ascii alphanum and space characters, we might want all utf8 in the future, at that point we'll need to find another library
-                        KeyCode::Char(c) if c.is_ascii_alphanumeric() || c == ' ' => {
-                            if idx == buf.len() {
-                                buf.push(c);
-                                write!(self.lock, "{}", c).unwrap();
-                            } else {
-                                buf.insert(idx, c);
-                                _execute!(self.lock, write_all(buf[idx..].as_bytes()), cursor_to_col((idx + 1) as u16));
-                            }
+                        KeyCode::Char(c) => {
+                            cur.insert(self.term(), c);
                             _execute!(self.lock, flush());
-                            idx += 1;
                         }
                         KeyCode::Backspace => {
-                            if idx > 1 {
-                                idx -= 1;
-                                if modifiers.contains(KeyModifiers::CONTROL) {
-                                    // delete to start of word
-                                    // first find the start of the word
-                                    let bytes = buf.as_bytes();
-                                    let start = idx;
-                                    let mut not_space = bytes[idx] != b' ';
-                                    while idx > 0 && !not_space {
-                                        idx -= 1;
-                                        not_space = bytes[idx] != b' ';
-                                    }
-                                    while idx > 0 && not_space {
-                                        idx -= 1;
-                                        not_space = bytes[idx] != b' ';
-                                    }
-                                    idx += 1;
-                                    // now delete the word
-                                    {
-                                        let _ = buf.drain(idx..=start);
-                                    }
-                                    _execute!(
-                                        self.lock,
-                                        cursor_to_col(idx as u16),
-                                        clear_line_to_end(),
-                                        write_all(buf[idx..].as_bytes()),
-                                        cursor_to_col(idx as u16)
-                                    );
-                                } else {
-                                    if idx + 1 == buf.len() {
-                                        buf.pop();
-                                        _execute!(self.lock, cursor_to_col(idx as u16), clear_line_to_end());
-                                    } else {
-                                        buf.remove(idx);
-                                        _execute!(
-                                            self.lock,
-                                            cursor_to_col(idx as u16),
-                                            clear_line_to_end(),
-                                            write_all(buf[idx..].as_bytes()),
-                                            cursor_to_col(idx as u16)
-                                        );
-                                    }
-                                }
-                                _execute!(self.lock, flush());
+                            if modifiers.contains(KeyModifiers::CONTROL) {
+                                cur.delete_word(self.term());
+                            } else {
+                                cur.delete(self.term());
                             }
+                            _execute!(self.lock, flush());
                         }
                         KeyCode::Left => {
-                            if idx > 1 {
-                                idx -= 1;
-                                if modifiers.contains(KeyModifiers::CONTROL) {
-                                    let buf = buf.as_bytes();
-                                    let mut not_space = buf[idx] != b' ';
-                                    // Skip over the whitespace
-                                    while idx > 0 && !not_space {
-                                        idx -= 1;
-                                        not_space = buf[idx] != b' ';
-                                    }
-                                    // Go to the start of the word
-                                    while idx > 0 && not_space {
-                                        idx -= 1;
-                                        not_space = buf[idx] != b' ';
-                                    }
-                                    idx += 1;
-                                }
-                                _execute!(self.lock, cursor_to_col(idx as u16), flush());
+                            if modifiers.contains(KeyModifiers::CONTROL) {
+                                cur.left_word(self.term());
+                            } else {
+                                cur.left(self.term());
                             }
+                            _execute!(self.lock, flush());
                         }
                         KeyCode::Right => {
-                            if idx < buf.len() {
-                                if modifiers.contains(KeyModifiers::CONTROL) {
-                                    let buf = buf.as_bytes();
-                                    let len = buf.len();
-                                    let mut not_space = buf[idx] != b' ';
-                                    // skip over whitespace
-                                    while idx < len && !not_space {
-                                        idx += 1;
-                                        not_space = buf[idx] != b' ';
-                                    }
-                                    // Go to the end of the word
-                                    while idx < len - 1 && not_space {
-                                        idx += 1;
-                                        not_space = buf[idx] != b' ';
-                                    }
-                                    if idx == len - 1 && not_space {
-                                        idx += 1;
-                                    }
-                                    idx -= 1;
-                                }
-                                idx += 1;
-                                _execute!(self.lock, cursor_to_col(idx as u16), flush());
+                            if modifiers.contains(KeyModifiers::CONTROL) {
+                                cur.right_word(self.term());
+                            } else {
+                                cur.right(self.term());
                             }
+                            _execute!(self.lock, flush());
                         }
                         KeyCode::Enter => {
                             _execute!(self.lock, clear_line(), cursor_hide(), flush());
@@ -508,7 +433,7 @@ where
                     _ => (),
                 }
             }
-            return match Command::from_str(&buf[1..]) {
+            return match Command::from_str(&cur.buf()[1..]) {
                 Ok(cmd) => Some(cmd),
                 Err(e) => {
                     _execute!(self.lock, cursor_to_col(0), write_all(b"error: "), write_all(e.as_bytes()), flush());
@@ -550,7 +475,7 @@ where
                 match crossterm::event::read().expect("failed to read event") {
                     Event::Key(e) if e.kind == KeyEventKind::Press => {
                         if e.code == KeyCode::Char(':') {
-                            if let Some(cmd) = self.command_line() {
+                            if let Some(cmd) = self.command_prompt() {
                                 if cmd == Command::Quit {
                                     return Pol::None;
                                 } else {
@@ -623,7 +548,7 @@ pub fn inlined(orig: DynamicImage, conf: Config) -> Result<()> {
     let dims = dimensions(term_sz, &conf, dims);
     fn write_ansi<P: Pixel, C: Converter>(
         lock: &mut BufWriter<StdoutLock>,
-        mut ansi: AnsiImage<ImageView<P>, C>,
+        mut ansi: AnsiImage<P, C>,
         config: &Config,
     ) -> io::Result<()>
     where
@@ -654,10 +579,15 @@ pub fn inlined(orig: DynamicImage, conf: Config) -> Result<()> {
     let mut lock = BufWriter::new(stdout().lock());
     if orig.color().has_color() {
         let orig = orig.into_rgb8();
-        let orig = if cfg!(feature = "fir") {
-            ImageView::from(&orig).fir_superscale(dims.0, dims.1, &conf.filter, 3)
-        } else {
-            ImageView::from(&orig).superscale(dims.0, dims.1, &conf.filter, 3.)
+        let orig = {
+            #[cfg(feature = "fir")]
+            {
+                ImageView::from(&orig).fir_supersize(dims.0, dims.1, &conf.filter, 3)
+            }
+            #[cfg(not(feature = "fir"))]
+            {
+                ImageView::from(&orig).supersize(dims.0, dims.1, &conf.filter, 3.)
+            }
         };
         let ansi = DynamicAnsiImage::new(ImageView::from(&orig), conf.color);
         match ansi {
@@ -671,11 +601,11 @@ pub fn inlined(orig: DynamicImage, conf: Config) -> Result<()> {
         let orig = {
             #[cfg(feature = "fir")]
             {
-                ImageView::from(&orig).fir_superscale(dims.0, dims.1, &conf.filter, 3)
+                ImageView::from(&orig).fir_supersize(dims.0, dims.1, &conf.filter, 3)
             }
             #[cfg(not(feature = "fir"))]
             {
-                ImageView::from(&orig).superscale(dims.0, dims.1, &conf.filter, 3.)
+                ImageView::from(&orig).supersize(dims.0, dims.1, &conf.filter, 3.)
             }
         };
         let ansi = DynamicAnsiImage::new(ImageView::from(&orig), conf.color);
@@ -742,7 +672,7 @@ pub fn terminal_size(term: &mut impl Terminal, conf: &Config) -> Result<(u16, u1
 /// Get the dimensions of the image to be displayed in the terminal by taking into account the terminal size, the image size, and the configuration
 #[inline]
 pub fn dimensions(term_sz: (u16, u16), conf: &Config, img_sz: (usize, usize)) -> (usize, usize) {
-    let fit = (term_sz.0 as usize, term_sz.1 as usize * 2);
+    let fit = viuwa_image::fit_dimensions(img_sz, (term_sz.0 as usize, term_sz.1 as usize * 2));
     let fill = viuwa_image::fill_dimensions(img_sz, fit);
     match (conf.width, conf.height) {
         (Dimension::Fit, Dimension::Fit) => fit,

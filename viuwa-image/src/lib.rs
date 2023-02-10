@@ -1,6 +1,10 @@
 #![doc = include_str!("../README.md")]
 #[cfg(feature = "rayon")]
-use ::rayon::prelude::*;
+use ::rayon::{
+    iter::{IndexedParallelIterator, ParallelIterator},
+    prelude::*,
+    slice::{ChunksExact as ParChunksExact, ChunksExactMut as ParChunksExactMut},
+};
 
 // NOTE: prefer to leave as much possible as pub,
 // so that users can use specific functionality if necessary.

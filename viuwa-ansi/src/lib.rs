@@ -2,7 +2,7 @@
 
 #[cfg(feature = "rayon")]
 use rayon::prelude::*;
-use viuwa_image::*;
+use viuwa_image::{ImageView, PixelRepr, Scalar};
 
 mod private {
     pub trait Sealed {}

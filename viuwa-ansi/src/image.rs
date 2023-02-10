@@ -6,37 +6,27 @@
 
 use std::marker::PhantomData;
 
-use viuwa_image::*;
-
 use super::*;
 
-/// Wrapper around any [`Image`], [`ImageView`], or [`ImageViewMut`] with a [`Pixel`] that implements [`AnsiPixel`]
+/// Wrapper around an [`ImageView`] with a [`Pixel`] that implements [`AnsiPixel`]
 /// to provide methods for converting the image to ANSI escape sequences by iteration.
 ///
 /// It is strongly recommended to use a [`BufWriter`] to write to any unbuffered writer from the iterators,
 /// an image in ANSI escape sequences can be *very* large (up to a factor of 40x the original image size).
-pub struct AnsiImage<I: ImageOps, C: Converter>(I, PhantomData<C>)
-where
-    I::Pixel: AnsiPixel;
+pub struct AnsiImage<'a, P: AnsiPixel, C: Converter>(ImageView<'a, P>, PhantomData<C>);
 
-/// Wrapper around any [`Image`], [`ImageView`], or [`ImageViewMut`] with a [`Pixel`] that implements [`AnsiPixel`]
+/// Wrapper around an [`ImageView`] with a [`Pixel`] that implements [`AnsiPixel`]
 /// to provide methods for converting the pixels to ANSI escape sequences
-pub enum DynamicAnsiImage<I: ImageOps>
-where
-    I::Pixel: AnsiPixel,
-{
-    Color(AnsiImage<I, ColorConverter>),
-    Gray(AnsiImage<I, GrayConverter>),
-    AnsiColor(AnsiImage<I, AnsiColorConverter>),
-    AnsiGray(AnsiImage<I, AnsiGrayConverter>),
+pub enum DynamicAnsiImage<'a, P: AnsiPixel> {
+    Color(AnsiImage<'a, P, ColorConverter>),
+    Gray(AnsiImage<'a, P, GrayConverter>),
+    AnsiColor(AnsiImage<'a, P, AnsiColorConverter>),
+    AnsiGray(AnsiImage<'a, P, AnsiGrayConverter>),
 }
 
-impl<I: ImageOps, C: Converter> AnsiImage<I, C>
-where
-    I::Pixel: AnsiPixel,
-{
+impl<'a, P: AnsiPixel, C: Converter> AnsiImage<'a, P, C> {
     /// Creates a new [`AnsiImage`] from a given [`Image`], [`ImageView`], or [`ImageViewMut`]
-    pub fn new(image: I) -> Self { Self(image, PhantomData) }
+    pub fn new(image: ImageView<'a, P>) -> Self { Self(image, PhantomData) }
     /// The width of the image in characters
     pub fn width(&self) -> usize { self.0.width() }
     /// The height of the image in characters
@@ -46,13 +36,13 @@ where
     /// Character rows iterator with a given [`char`] and [`ColorAttributes`]. <br>
     /// Where char is a character that mainly fills the upper half of the cell <br><br>
     /// `'▀'` will be used if `char` is `None`
-    pub fn rows_upper(&mut self, attrs: ColorAttributes, char: Option<Char>) -> AnsiRows<I::Pixel, C, Upper> {
+    pub fn rows_upper(&mut self, attrs: ColorAttributes, char: Option<Char>) -> AnsiRows<P, C, Upper> {
         AnsiRows { iter: self.0.rows(), char: char.unwrap_or(UPPER_HALF_BLOCK), attrs, phantom: PhantomData }
     }
     /// Character rows iterator with a given [`char`] and [`ColorAttributes`]. <br>
     /// Where char is a character that mainly fills the lower half of the cell <br><br>
     /// `'▄'` will be used if `char` is `None`
-    pub fn rows_lower(&mut self, attrs: ColorAttributes, char: Option<Char>) -> AnsiRows<I::Pixel, C, Lower> {
+    pub fn rows_lower(&mut self, attrs: ColorAttributes, char: Option<Char>) -> AnsiRows<P, C, Lower> {
         AnsiRows { iter: self.0.rows(), char: char.unwrap_or(LOWER_HALF_BLOCK), attrs, phantom: PhantomData }
     }
     #[cfg(feature = "rayon")]
@@ -62,7 +52,7 @@ where
         &mut self,
         attrs: ColorAttributes,
         char: Option<Char>,
-    ) -> impl ParallelIterator<Item = AnsiRow<I::Pixel, C, Upper>> + IndexedParallelIterator
+    ) -> impl ParallelIterator<Item = AnsiRow<P, C, Upper>> + IndexedParallelIterator
     where
         C: Send,
     {
@@ -83,7 +73,7 @@ where
         &mut self,
         attrs: ColorAttributes,
         char: Option<Char>,
-    ) -> impl ParallelIterator<Item = AnsiRow<I::Pixel, C, Lower>> + IndexedParallelIterator
+    ) -> impl ParallelIterator<Item = AnsiRow<P, C, Lower>> + IndexedParallelIterator
     where
         C: Send,
     {
@@ -118,12 +108,9 @@ macro_rules! dyn_map {
         }
     };
 }
-impl<I: ImageOps> DynamicAnsiImage<I>
-where
-    I::Pixel: AnsiPixel,
-{
+impl<'a, P: AnsiPixel> DynamicAnsiImage<'a, P> {
     /// Creates a new [`DynamicAnsiImage`] from a given [`Image`], [`ImageView`], or [`ImageViewMut`] and a [`ColorType`]
-    pub fn new(image: I, color: ColorType) -> Self {
+    pub fn new(image: ImageView<'a, P>, color: ColorType) -> Self {
         match color {
             ColorType::Color => Self::Color(AnsiImage::new(image)),
             ColorType::Gray => Self::Gray(AnsiImage::new(image)),
@@ -139,33 +126,21 @@ where
     pub fn dimensions(&self) -> (usize, usize) { dyn_map!(self, |image| image.dimensions()) }
 }
 
-impl<I: ImageOps> From<AnsiImage<I, ColorConverter>> for DynamicAnsiImage<I>
-where
-    I::Pixel: AnsiPixel,
-{
+impl<'a, P: AnsiPixel> From<AnsiImage<'a, P, ColorConverter>> for DynamicAnsiImage<'a, P> {
     #[inline(always)]
-    fn from(image: AnsiImage<I, ColorConverter>) -> Self { Self::Color(image) }
+    fn from(image: AnsiImage<'a, P, ColorConverter>) -> Self { Self::Color(image) }
 }
-impl<I: ImageOps> From<AnsiImage<I, GrayConverter>> for DynamicAnsiImage<I>
-where
-    I::Pixel: AnsiPixel,
-{
+impl<'a, P: AnsiPixel> From<AnsiImage<'a, P, GrayConverter>> for DynamicAnsiImage<'a, P> {
     #[inline(always)]
-    fn from(image: AnsiImage<I, GrayConverter>) -> Self { Self::Gray(image) }
+    fn from(image: AnsiImage<'a, P, GrayConverter>) -> Self { Self::Gray(image) }
 }
-impl<I: ImageOps> From<AnsiImage<I, AnsiColorConverter>> for DynamicAnsiImage<I>
-where
-    I::Pixel: AnsiPixel,
-{
+impl<'a, P: AnsiPixel> From<AnsiImage<'a, P, AnsiColorConverter>> for DynamicAnsiImage<'a, P> {
     #[inline(always)]
-    fn from(image: AnsiImage<I, AnsiColorConverter>) -> Self { Self::AnsiColor(image) }
+    fn from(image: AnsiImage<'a, P, AnsiColorConverter>) -> Self { Self::AnsiColor(image) }
 }
-impl<I: ImageOps> From<AnsiImage<I, AnsiGrayConverter>> for DynamicAnsiImage<I>
-where
-    I::Pixel: AnsiPixel,
-{
+impl<'a, P: AnsiPixel> From<AnsiImage<'a, P, AnsiGrayConverter>> for DynamicAnsiImage<'a, P> {
     #[inline(always)]
-    fn from(image: AnsiImage<I, AnsiGrayConverter>) -> Self { Self::AnsiGray(image) }
+    fn from(image: AnsiImage<'a, P, AnsiGrayConverter>) -> Self { Self::AnsiGray(image) }
 }
 
 #[inline(always)]
