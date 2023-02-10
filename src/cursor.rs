@@ -234,11 +234,10 @@ impl AsciiPrompt {
         if c.is_ascii() {
             if self.at_end() {
                 self.buf.push(c);
-                _execute!(term, write_as(&self.buf[self.idx()..]), cursor_to_col(self.cur));
             } else {
                 self.buf.insert(self.idx(), c);
-                _execute!(term, write_as(&self.buf[self.idx()..]), cursor_to_col(self.cur));
             }
+            _execute!(term, write_as(&self.buf[self.idx()..]), cursor_to_col(self.cur));
             self.cur += 1;
         }
     }
