@@ -184,9 +184,9 @@ where
         self._draw();
         loop {
             match self.poll() {
+                Pol::Cmd(Command::Quit) | Pol::None => break,
                 Pol::Cmd(cmd) => self.command(cmd),
                 Pol::Rsz => self.reload(),
-                _ => break,
             }
         }
         execute!(self.lock, enable_line_wrap(), cursor_show(), exit_alt_screen(), disable_raw_mode(), soft_reset(), flush())
@@ -476,19 +476,10 @@ where
                     Event::Key(e) if e.kind == KeyEventKind::Press => {
                         if e.code == KeyCode::Char(':') {
                             if let Some(cmd) = self.command_prompt() {
-                                if cmd == Command::Quit {
-                                    return Pol::None;
-                                } else {
-                                    return Pol::Cmd(cmd);
-                                }
+                                return Pol::Cmd(cmd);
                             }
                         } else if let Some(cmd) = self.conf.keybinds.get(&KeyBind(e)) {
-                            let cmd = cmd.clone();
-                            if cmd == Action::Quit {
-                                return Pol::None;
-                            } else {
-                                return Pol::Cmd(cmd.into());
-                            }
+                            return Pol::Cmd(cmd.clone().into());
                         }
                     }
                     Event::Resize(w, h) => {
@@ -520,19 +511,10 @@ where
                 let key = buf.trim_end_matches(['\r', '\n']);
                 if key == ":" {
                     if let Some(cmd) = self.parse_command() {
-                        if cmd == Command::Quit {
-                            return Pol::None;
-                        } else {
-                            return Pol::Cmd(cmd);
-                        }
+                        return Pol::Cmd(cmd);
                     }
                 } else if let Some(cmd) = self.conf.keybinds.get(key) {
-                    let cmd = cmd.clone();
-                    if cmd == Action::Quit {
-                        return Pol::None;
-                    } else {
-                        return Pol::Cmd(cmd.into());
-                    }
+                    return Pol::Cmd(cmd.clone().into());
                 }
             }
         }
