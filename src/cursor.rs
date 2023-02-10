@@ -237,8 +237,8 @@ impl AsciiPrompt {
             } else {
                 self.buf.insert(self.idx(), c);
             }
-            _execute!(term, write_as(&self.buf[self.idx()..]), cursor_to_col(self.cur));
             self.cur += 1;
+            _execute!(term, write_as(&self.buf[self.idx()..]), cursor_to_col(self.cur));
         }
     }
     /// Returns the end index of the current word segment (exclusive), including end of string.
