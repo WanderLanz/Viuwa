@@ -1,6 +1,5 @@
 //! ASCII cursor functions and structs, by default words are seperated by is_ascii_whitespace.
 // HELP: I'm sure there's a crate for this I just can't find it.
-use ::core::iter::zip;
 use viuwa_ansi::consts::*;
 
 use super::*;
@@ -8,114 +7,244 @@ use super::*;
 /// ASCII cursor functions, by default words are seperated by is_ascii_whitespace.
 pub mod ascii {
     use super::*;
-    /// first end index of a 'word' segment (including whitespace) to the right of cur in [cur + 1..]
-    // TODO: move some of the agnostic functions of AsciiPrompt and AsciiCursor to the this module
+    /// first end index of a word segment to the right of cur in `buf[cur + 1..]`
     #[inline]
     pub fn segment_end(buf: &[u8], cur: usize) -> usize {
         debug_assert!(cur <= buf.len());
-        if let Some(mid) = buf.get(cur) {
-            if let Some(right) = buf.get(cur + 1..) {
-                let cond = mid.is_ascii_whitespace();
-                for (i, b) in zip(cur + 1.., right) {
-                    if (cond ^ b.is_ascii_whitespace()) as u8 != 0 {
+        match buf.get(cur..) {
+            Some([start, bytes @ ..]) if !bytes.is_empty() => {
+                let start = start.is_ascii_whitespace();
+                let mut i = cur + 1;
+                for byte in bytes {
+                    if (start ^ byte.is_ascii_whitespace()) as u8 != 0 {
                         return i;
                     }
+                    i += 1;
                 }
+                // i = buf.len()
+                i
             }
+            _ => buf.len(),
         }
-        buf.len()
     }
-    /// first start index of a 'word' segment (including whitespace) to the left of cur in [..=cur]
+    /// first start index of a word segment to the left of cur in `buf[..=cur]`
     #[inline]
     pub fn segment_start(buf: &[u8], cur: usize) -> usize {
         debug_assert!(cur <= buf.len());
-        if let Some(mid) = buf.get(cur) {
-            if let Some(left) = buf.get(..cur) {
-                let cond = mid.is_ascii_whitespace();
-                for (i, b) in left.iter().enumerate().rev() {
-                    if (cond ^ b.is_ascii_whitespace()) as u8 != 0 {
-                        return i + 1;
+        match buf.get(..=cur) {
+            Some([bytes @ .., start]) if !bytes.is_empty() => {
+                let start = start.is_ascii_whitespace();
+                let mut i = cur;
+                for byte in bytes.iter().rev() {
+                    if (start ^ byte.is_ascii_whitespace()) as u8 != 0 {
+                        return i;
                     }
+                    i -= 1;
                 }
+                // i = 0
+                i
             }
-            0
-        } else {
-            buf.len()
+            _ => cur,
         }
     }
-    /// first start index of a 'word' segment (including whitespace) to the left of cur in [start..=cur]
+    /// first start index of a word segment to the left of cur in `buf[begin..=cur]`
     #[inline]
-    pub fn segment_start_from(buf: &[u8], start: usize, cur: usize) -> usize {
-        debug_assert!(start <= cur && cur <= buf.len());
-        if let Some(mid) = buf.get(cur) {
-            if let Some(left) = buf.get(start..cur) {
-                let cond = mid.is_ascii_whitespace();
-                for (i, b) in left.iter().enumerate().rev() {
-                    if (cond ^ b.is_ascii_whitespace()) as u8 != 0 {
-                        return i + start + 1;
+    pub fn segment_start_from(buf: &[u8], begin: usize, cur: usize) -> usize {
+        debug_assert!(begin <= cur && cur <= buf.len());
+        match buf.get(begin..=cur) {
+            Some([bytes @ .., start]) if !bytes.is_empty() => {
+                let start = start.is_ascii_whitespace();
+                let mut i = cur;
+                for byte in bytes.iter().rev() {
+                    if (start ^ byte.is_ascii_whitespace()) as u8 != 0 {
+                        return i;
                     }
+                    i -= 1;
                 }
+                // i = begin
+                i
             }
-            start
-        } else {
-            buf.len()
+            _ => cur,
         }
     }
-    /// first end index of a non-whitespace word to the right of cur in [cur + 1..]
+    /// first end index of a word to the right of cur in `buf[cur + 1..]`
     #[inline]
     pub fn word_end(buf: &[u8], cur: usize) -> usize {
         debug_assert!(cur <= buf.len());
-        if let Some(mid) = buf.get(cur) {
-            let mut last = mid.is_ascii_whitespace() as u8;
-            if let Some(right) = buf.get(cur + 1..) {
-                for (i, b) in zip(cur + 1.., right) {
-                    let new = b.is_ascii_whitespace() as u8;
+        match buf.get(cur..) {
+            Some([start, bytes @ ..]) if !bytes.is_empty() => {
+                let mut last = start.is_ascii_whitespace() as u8;
+                let mut new;
+                let mut i = cur + 1;
+                for byte in bytes {
+                    new = byte.is_ascii_whitespace() as u8;
                     // if we transition from non-whitespace to whitespace, we've found the end of the word
                     if new.saturating_sub(last) == 1 {
                         return i;
                     }
                     last = new;
+                    i += 1;
                 }
+                // i = buf.len()
+                i
             }
+            _ => buf.len(),
         }
-        buf.len()
     }
-    /// first start index of a non-whitespace word to the left of cur in [..=cur]
+    /// first start index of a word to the left of cur in `buf[..=cur]`
     #[inline]
     pub fn word_start(buf: &[u8], cur: usize) -> usize {
         debug_assert!(cur <= buf.len());
         // we count end as whitespace
-        let mut last = if let Some(mid) = buf.get(cur) { mid.is_ascii_whitespace() as u8 } else { 1 };
-        if let Some(left) = buf.get(..cur) {
-            for (i, b) in left.iter().enumerate().rev() {
-                let new = b.is_ascii_whitespace() as u8;
-                // if we transition from non-whitespace to whitespace, we've found the start of the word
-                if new.saturating_sub(last) == 1 {
-                    return i + 1;
+        match buf.get(..cur) {
+            Some(bytes) if !bytes.is_empty() => {
+                let mut last = if let Some(start) = buf.get(cur) { start.is_ascii_whitespace() as u8 } else { 1 };
+                let mut new;
+                let mut i = cur;
+                for byte in bytes.iter().rev() {
+                    new = byte.is_ascii_whitespace() as u8;
+                    // if we transition from non-whitespace to whitespace, we've found the start of the word
+                    if new.saturating_sub(last) == 1 {
+                        return i;
+                    }
+                    last = new;
+                    i -= 1;
                 }
-                last = new;
+                // i = 0
+                i
             }
+            _ => cur,
         }
-        0
     }
-    /// first start index of a non-whitespace word to the left of cur in [start..=cur]
+    /// first start index of a word to the left of cur in `buf[start..=cur]`
     #[inline]
-    pub fn word_start_from(buf: &[u8], start: usize, cur: usize) -> usize {
-        debug_assert!(start <= cur && cur <= buf.len());
+    pub fn word_start_from(buf: &[u8], begin: usize, cur: usize) -> usize {
+        debug_assert!(begin <= cur && cur <= buf.len());
         // we count end as whitespace
-        let mut last = if let Some(mid) = buf.get(cur) { mid.is_ascii_whitespace() as u8 } else { 1 };
-        if let Some(left) = buf.get(start..cur) {
-            for (i, b) in left.iter().enumerate().rev() {
-                let new = b.is_ascii_whitespace() as u8;
-                // if we transition from non-whitespace to whitespace, we've found the start of the word
-                if new.saturating_sub(last) == 1 {
-                    return i + start + 1;
+        match buf.get(begin..cur) {
+            Some(bytes) if !bytes.is_empty() => {
+                let mut last = if let Some(start) = buf.get(cur) { start.is_ascii_whitespace() as u8 } else { 1 };
+                let mut new;
+                let mut i = cur;
+                for byte in bytes.iter().rev() {
+                    new = byte.is_ascii_whitespace() as u8;
+                    // if we transition from non-whitespace to whitespace, we've found the start of the word
+                    if new.saturating_sub(last) == 1 {
+                        return i;
+                    }
+                    last = new;
+                    i -= 1;
                 }
-                last = new;
+                // i = begin
+                i
+            }
+            _ => cur,
+        }
+    }
+    /// Get the word segment that the cursor is currently on.
+    #[inline]
+    pub fn get_segment(buf: &str, cur: usize) -> Option<&str> {
+        let b = buf.as_bytes();
+        buf.get(segment_start(b, cur)..segment_end(b, cur))
+    }
+    /// Get the word that the cursor is currently on.
+    /// Returns None if there is no word.
+    #[inline]
+    pub fn get_word(buf: &str, cur: usize) -> Option<&str> {
+        let b = buf.as_bytes();
+        if b.get(cur)?.is_ascii_whitespace() {
+            // we are at end of buf or whitespace
+            None
+        } else {
+            let start = segment_start(b, cur);
+            if !b[start].is_ascii_whitespace() {
+                Some(&buf[start..segment_end(b, cur)])
+            } else {
+                None
             }
         }
-        start
     }
+}
+
+/// Iterator over the word segments in given string.
+/// A word segment is a sequence of consecutive characters that are either all whitespace or all non-whitespace.
+///
+/// # Examples
+/// ```
+/// use viuwa::cursor::SegmentIter;
+/// let mut iter = SegmentIter::new("hello  world");
+/// assert_eq!(iter.next(), Some("hello"));
+/// assert_eq!(iter.next(), Some("  "));
+/// assert_eq!(iter.next(), Some("world"));
+/// assert_eq!(iter.next(), None);
+/// ```
+///
+/// # Safety
+/// This iterator follows the same safety guarantees as `str::split_ascii_whitespace`.
+#[derive(Debug, Clone)]
+pub struct AsciiSegmentIter<'a> {
+    buf: Option<&'a str>,
+}
+impl<'a> AsciiSegmentIter<'a> {
+    #[inline]
+    pub fn new(buf: &'a str) -> Self { Self { buf: if !buf.is_empty() { Some(buf) } else { None } } }
+    /// Will return an empty string once if `buf` is empty.
+    #[inline]
+    pub unsafe fn new_unchecked(buf: &'a str) -> Self { Self { buf: Some(buf) } }
+}
+impl<'a> Iterator for AsciiSegmentIter<'a> {
+    type Item = &'a str;
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let buf = self.buf?;
+        match buf.as_bytes() {
+            [start, bytes @ ..] if !bytes.is_empty() => {
+                let start = start.is_ascii_whitespace();
+                let mut i = 1;
+                for byte in bytes {
+                    if (start ^ byte.is_ascii_whitespace()) as u8 != 0 {
+                        self.buf = Some(&buf[i..]);
+                        return Some(&buf[..i]);
+                    }
+                    i += 1;
+                }
+            }
+            _ => (),
+        }
+        self.buf = None;
+        Some(buf)
+    }
+}
+impl<'a> DoubleEndedIterator for AsciiSegmentIter<'a> {
+    #[inline]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let buf = self.buf?;
+        match buf.as_bytes() {
+            [bytes @ .., start] if !bytes.is_empty() => {
+                let start = start.is_ascii_whitespace();
+                let mut i = bytes.len();
+                for byte in bytes.iter().rev() {
+                    if (start ^ byte.is_ascii_whitespace()) as u8 != 0 {
+                        self.buf = Some(&buf[..i]);
+                        return Some(&buf[i..]);
+                    }
+                    i -= 1;
+                }
+            }
+            _ => (),
+        }
+        self.buf = None;
+        Some(buf)
+    }
+}
+impl<'a> core::iter::FusedIterator for AsciiSegmentIter<'a> {}
+
+/// This is a placeholder for `split_ascii_whitespace` to match [`AsciiSegmentIter`],
+/// use `split_ascii_whitespace` to get an iterator over the words in a string.
+pub struct AsciiWordIter;
+impl AsciiWordIter {
+    #[inline(always)]
+    pub fn new(buf: &str) -> core::str::SplitAsciiWhitespace { buf.split_ascii_whitespace() }
 }
 
 /// Terminal cursor for ASCII string prompts, with a left bound on the cursor allowing for prompts in buffer.
@@ -160,7 +289,7 @@ impl AsciiPrompt {
     #[inline(always)]
     pub fn at_start(&self) -> bool { self.cur == self.start }
     #[inline(always)]
-    pub fn idx(&self) -> usize { self.cur as usize }
+    fn idx(&self) -> usize { self.cur as usize }
     /// Update the terminal cursor position.
     #[inline(always)]
     fn reposition(&mut self, term: &mut impl Terminal) {
@@ -298,19 +427,11 @@ impl AsciiPrompt {
     /// Get the word that the cursor is currently on.
     /// Returns None if there is no word.
     #[inline]
-    pub fn get_word(&self) -> Option<&str> {
-        if self.bytes().get(self.idx())?.is_ascii_whitespace() {
-            // we are at end of buf or whitespace
-            None
-        } else {
-            let start = self.segment_start();
-            if !self.bytes()[start].is_ascii_whitespace() {
-                Some(&self.buf[start..self.segment_end()])
-            } else {
-                None
-            }
-        }
-    }
+    pub fn get_word(&self) -> Option<&str> { ascii::get_word(&self.buf, self.idx()) }
+    /// Get the word segment that the cursor is currently on.
+    /// Returns None if there is no word segment.
+    #[inline]
+    pub fn get_segment(&self) -> Option<&str> { ascii::get_segment(&self.buf, self.idx()) }
     /// Get the word that the cursor is currently on or the next word.
     /// Returns None if there is no words left.
     #[inline]
@@ -514,19 +635,11 @@ impl AsciiCursor {
     /// Get the word that the cursor is currently on.
     /// Returns None if there is no word.
     #[inline]
-    pub fn get_word(&self) -> Option<&str> {
-        if self.bytes().get(self.idx())?.is_ascii_whitespace() {
-            // we are at end of buf or whitespace
-            None
-        } else {
-            let start = self.segment_start();
-            if !self.bytes()[start].is_ascii_whitespace() {
-                Some(&self.buf[start..self.segment_end()])
-            } else {
-                None
-            }
-        }
-    }
+    pub fn get_word(&self) -> Option<&str> { ascii::get_word(&self.buf, self.idx()) }
+    /// Get the word segment that the cursor is currently on.
+    /// Returns None if there is no word segment.
+    #[inline]
+    pub fn get_segment(&self) -> Option<&str> { ascii::get_segment(&self.buf, self.idx()) }
     /// Get the word that the cursor is currently on or the next word.
     /// Returns None if there is no words left.
     #[inline]

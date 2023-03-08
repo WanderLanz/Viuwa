@@ -349,10 +349,10 @@ impl<T: Scalar, const N: usize> PixelRepr for [T; N] {
     type Weights = [Weight; N];
 }
 impl<T: Scalar> PixelRepr for T {
-    type Scalar = Self;
+    type Scalar = T;
     const CHANNELS: usize = 1;
-    const ZERO: Self = Self::ZERO;
-    const ONE: Self = Self::ONE;
+    const ZERO: Self = T::ZERO;
+    const ONE: Self = T::ONE;
     type Weights = Weight;
 }
 

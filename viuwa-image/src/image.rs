@@ -405,6 +405,14 @@ impl<P: Pixel> Image<P> {
             height,
         }
     }
+    /// Create a new image filled with given pixel value.
+    pub fn new_with(width: usize, height: usize, pixel: P::Repr) -> Self {
+        Self {
+            data: flatten_box::<P>(vec![pixel; checked_pixels_len::<P>(width, height)].into_boxed_slice()),
+            width,
+            height,
+        }
+    }
     /// Create a new image with default pixel unchecked, prefer to use `new` instead for safety.
     /// # Safety
     /// Must not be given a zero for width or height.
