@@ -6,7 +6,6 @@ use super::*;
 
 /// ASCII cursor functions, by default words are seperated by is_ascii_whitespace.
 pub mod ascii {
-    use super::*;
     /// first end index of a word segment to the right of cur in `buf[cur + 1..]`
     #[inline]
     pub fn segment_end(buf: &[u8], cur: usize) -> usize {

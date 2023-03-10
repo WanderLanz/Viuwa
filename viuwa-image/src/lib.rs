@@ -18,12 +18,10 @@ mod private {
     pub trait Sealed {}
 }
 use private::Sealed;
-#[doc(hidden)]
 pub mod filter;
 #[doc(inline)]
 pub use crate::filter::FilterType;
 use crate::filter::*;
-#[doc(hidden)]
 pub mod sample;
 use crate::sample::*;
 mod image;
@@ -37,6 +35,9 @@ pub use crate::pixel::*;
 /// sorry for the inconvenience, maybe it will be removed in the future, even if 4GB is likely to be enough for everyone.
 pub const MAX_IMAGE_SIZE: usize = u32::MAX as usize;
 
-/// The type of coefficients (float) used for weights in default sampling, eventually removed once it's decided
 #[doc(hidden)]
-pub type Weight = f32; // | f64;
+#[cfg(not(feature = "f64"))]
+pub type Weight = f32;
+#[doc(hidden)]
+#[cfg(feature = "f64")]
+pub type Weight = f64;

@@ -73,7 +73,6 @@ pub trait Terminal: Write + Sized {
         return ::crossterm::terminal::size();
         #[cfg(target_family = "wasm")]
         {
-            use std::io::Read;
             return {
                 if let (Some(w), Some(h)) = (
                     std::env::var("COLUMNS").ok().and_then(|h| h.parse::<u16>().ok()),

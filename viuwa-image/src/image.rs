@@ -228,6 +228,19 @@ macro_rules! impl_image_ops {
             sample(filter.filter(), self.view(), buf.view_mut());
             buf
         }
+        /// Resize the image to the new dimensions, not preserving aspect ratio.
+        ///
+        /// use [`fit_dimensions`] or [`fill_dimensions`] to preserve aspect ratio.
+        #[inline]
+        #[cfg(feature = "rayon")]
+        pub fn par_resize(&self, width: usize, height: usize, filter: &FilterType) -> Image<P> {
+            if (width, height) == self.dimensions() {
+                return Image { data: self.data().into(), width, height };
+            }
+            let mut buf = unsafe { Image::new_uninit_unchecked(width, height) };
+            par_sample(filter.filter(), self.view(), buf.view_mut());
+            buf
+        }
         /// Resize the image to the new dimensions, not preserving aspect ratio,
         ///
         /// if the image is larger than the new dimensions * multiplicity,
@@ -241,6 +254,22 @@ macro_rules! impl_image_ops {
             }
             let mut buf = unsafe { Image::new_uninit_unchecked(width, height) };
             supersample(filter.filter(), self.view(), buf.view_mut(), multiplicity);
+            buf
+        }
+        /// Resize the image to the new dimensions, not preserving aspect ratio,
+        ///
+        /// if the image is larger than the new dimensions * multiplicity,
+        /// it will be downsampled by nearest neighbor first to reduce the amount of work.
+        ///
+        /// use [`fit_dimensions`] or [`fill_dimensions`] to preserve aspect ratio.
+        #[inline]
+        #[cfg(feature = "rayon")]
+        pub fn par_supersize(&self, width: usize, height: usize, filter: &FilterType, multiplicity: f32) -> Image<P> {
+            if (width, height) == self.dimensions() {
+                return Image { data: self.data().into(), width, height };
+            }
+            let mut buf = unsafe { Image::new_uninit_unchecked(width, height) };
+            par_supersample(filter.filter(), self.view(), buf.view_mut(), multiplicity);
             buf
         }
         /// [`resize`](Self::resize) using SIMD.

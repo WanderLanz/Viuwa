@@ -336,7 +336,8 @@ impl Config {
 /// Parse a string as a path to a file.
 #[inline]
 pub fn parse_file_path_str(path: &str) -> Result<PathBuf, String> {
-    let path = PathBuf::from(path);
+    let mut path = PathBuf::from(path);
+    path = path.canonicalize().unwrap_or(path);
     if path.is_file() {
         Ok(path)
     } else {

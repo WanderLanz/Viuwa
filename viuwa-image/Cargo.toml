@@ -32,3 +32,5 @@ image = ["dep:image"]
 rayon = ["dep:rayon", "image/jpeg_rayon"]
 # fast image resizing with `fast_image_resize` crate and simd
 fir = ["dep:fast_image_resize"]
+# use f64 instead of f32 for calculations
+f64 = []

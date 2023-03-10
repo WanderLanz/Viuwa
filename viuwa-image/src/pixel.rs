@@ -340,6 +340,7 @@ pub trait PixelRepr: 'static + Sealed + Clone + Copy + Send + Sync + Sized + ::b
         unsafe { &mut *::core::ptr::slice_from_raw_parts_mut(self as *mut Self as *mut _, Self::CHANNELS) }
     }
 }
+// N = 0? whatever
 impl<T: Scalar, const N: usize> Sealed for [T; N] {}
 impl<T: Scalar, const N: usize> PixelRepr for [T; N] {
     type Scalar = T;

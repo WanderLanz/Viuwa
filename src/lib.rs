@@ -289,7 +289,7 @@ where
         trace!("Viuwa::reload");
         #[cfg(target_os = "wasi")]
         {
-            if let Some(sz) = self.lock.size_quiet() {
+            if let Ok(sz) = self.lock.size_quiet() {
                 self.sz = sz;
             }
         }
@@ -506,11 +506,11 @@ where
                 }
                 buf.clear();
                 if stdin.read_line(&mut buf).expect("failed to read stdin") == 0 {
-                    return None;
+                    continue;
                 }
                 let key = buf.trim_end_matches(['\r', '\n']);
                 if key == ":" {
-                    if let Some(cmd) = self.parse_command() {
+                    if let Some(cmd) = self.command_prompt() {
                         return Pol::Cmd(cmd);
                     }
                 } else if let Some(cmd) = self.conf.keybinds.get(key) {

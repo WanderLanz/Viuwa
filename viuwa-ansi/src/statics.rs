@@ -36,6 +36,7 @@ pub static ANSI_GRAY: [u8; 256] = [
 231, 231, 231, 231, 231, 231, 231, 231,
 ];
 
+// use `itoa`?
 const FMT_U8_ARRAY: [[u8; 3]; 256] = unsafe {
     ::core::mem::transmute(
         *b"000001002003004005006007008009010011012013014015\
